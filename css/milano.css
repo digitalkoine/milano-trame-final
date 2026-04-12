@@ -1,0 +1,1645 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap");
+/* Milano map custom UI (TRAME)
+   - Positions the category filter panel (top-right)
+   - Minor typography and spacing tweaks to match the original TRAME style
+*/
+
+/* Extra UI styling for the Milano Jewish sites view */
+
+.info.legend h4 {
+  margin: 0 0 8px 0;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.25);
+  display: inline-block;
+}
+
+.legend-label {
+  font-size: 12px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+/* Make popups a bit easier to read */
+.leaflet-popup-content {
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  line-height: 1.35;
+}
+
+/* --- Right sidebar: list of places visible in the current year --- */
+#sidebar {
+  /* Keep sidebar width as a variable so we can offset Leaflet controls accordingly */
+  --sidebar-w: 340px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--sidebar-w);
+  max-width: 92vw;
+  background: rgba(255, 255, 255, 0.92);
+  border-left: 1px solid rgba(0,0,0,0.08);
+  box-shadow: -2px 0 10px rgba(0,0,0,0.12);
+  z-index: 900; /* below leaflet popups (usually 1000+) but above tiles */
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+  Prevent Leaflet controls (top-right / bottom-right) from sitting *under* the sidebar.
+  This fixes the overlapping you see on the right.
+*/
+.leaflet-top.leaflet-right,
+.leaflet-bottom.leaflet-right {
+  right: calc(var(--sidebar-w, 420px) + 12px) !important;
+}
+
+/* On smaller screens the sidebar becomes an overlay; keep controls in their default positions */
+@media (max-width: 820px) {
+  #sidebar {
+    width: 92vw;
+    --sidebar-w: 92vw;
+  }
+  .leaflet-top.leaflet-right,
+  .leaflet-bottom.leaflet-right {
+    right: 0 !important;
+  }
+}
+
+#sidebar .sidebar-header {
+  padding: 12px 12px 10px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+/* Sidebar info box (description of the selected/clicked place) */
+.place-info {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+
+.place-info-title {
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0 0 8px 0;
+  color: #111;
+}
+
+.place-info-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.05);
+  border: 1px solid rgba(0,0,0,0.08);
+  color: #222;
+}
+
+.pill-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.18);
+}
+
+/* Category icon used inside pills (replaces coloured dot) */
+.pill-ico {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pill-ico svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.place-info-line {
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  color: #333;
+  margin: 4px 0;
+}
+
+.place-info-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  line-height: 1.35;
+  color: #222;
+}
+
+#sidebar .sidebar-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#sidebar .sidebar-title h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+#sidebar .sidebar-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  color: #444;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#sidebar button.sidebar-btn {
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: white;
+  cursor: pointer;
+}
+
+#sidebar button.sidebar-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+#placesList {
+  padding: 8px 6px 12px 6px;
+  overflow: auto;
+}
+
+.place-item {
+  display: block;
+  padding: 10px 10px;
+  margin: 6px 6px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  cursor: pointer;
+}
+
+.place-item:hover {
+  border-color: rgba(0,0,0,0.18);
+}
+
+.place-item.is-selected {
+  border-color: rgba(0,0,0,0.28);
+  box-shadow: 0 2px 7px rgba(0,0,0,0.12);
+}
+
+/* Inactive places (not present in the current year and/or filtered out) */
+.place-item.is-inactive {
+  opacity: 0.55;
+  background: rgba(250,250,250,0.95);
+}
+
+.place-item.is-inactive:hover {
+  border-color: rgba(0,0,0,0.12);
+}
+
+.place-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 6px 0;
+}
+
+.place-meta {
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  color: #444;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.place-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.place-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.18);
+}
+
+/* Category icons in the sidebar */
+.place-ico {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.place-ico svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.place-ico--section svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.4;
+}
+
+.place-years {
+  white-space: nowrap;
+}
+
+/* Grouped list sections */
+.place-section {
+  margin: 6px 0 12px 0;
+}
+
+.place-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 10px 6px 4px 6px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.88);
+  border: 1px solid rgba(0,0,0,0.10);
+  box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  font-weight: 800;
+  letter-spacing: .02em;
+  color: #111;
+}
+
+/* Permanent labels used in story mode to show the phase dates close to each marker */
+.leaflet-tooltip.phase-label {
+  background: rgba(255,255,255,0.96);
+  border: 1px solid rgba(0,0,0,0.14);
+  border-radius: 999px;
+  padding: 3px 8px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+  font-size: 13px;
+  min-height: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  font-weight: 700;
+  color: #111;
+}
+
+.leaflet-tooltip.phase-label:before {
+  display: none;
+}
+
+.leaflet-tooltip.phase-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.leaflet-tooltip.phase-label .phase-label__seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(17,17,17,0.10);
+  color: #111;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+.leaflet-tooltip.phase-label .phase-label__years {
+  display: inline-block;
+}
+
+/* Story mode: movement line + arrowheads to show spatial relocation */
+.leaflet-overlay-pane .movement-line {
+  stroke-dasharray: 6 10;
+  animation: movement-dash 2.2s linear infinite;
+}
+
+@keyframes movement-dash {
+  to { stroke-dashoffset: -32; }
+}
+
+.movement-arrow-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.move-arrow {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(17, 17, 17, 0.72);
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
+  animation: arrow-pulse 1.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.move-arrow svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  overflow: visible;
+}
+
+@keyframes arrow-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.95; }
+}
+
+
+/* --- Dynamic count markers (divIcon) for overlaps in the main chronology --- */
+.count-marker-wrap { }
+.count-marker {
+  width: var(--sz, 18px);
+  height: var(--sz, 18px);
+  border-radius: 999px;
+  background: var(--cm, #74c476);
+  opacity: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs, 12px);
+  font-weight: 800;
+  /* number in black */
+  color: #111;
+  border: 2px solid transparent;
+  box-shadow: var(--rings, 0 0 0 0 transparent), 0 1px 5px rgba(0,0,0,0.18);
+  text-shadow: none;
+}
+
+/* Category markers used when a stack is expanded (cluster-like) */
+
+/* Glyph markers (used for spiderfy points + story mode markers) */
+.glyph-marker {
+  width: var(--sz, 18px);
+  height: var(--sz, 18px);
+  border-radius: 999px;
+  background: var(--fill, rgba(255,255,255,0.96));
+  border: 2px solid rgba(0,0,0,0.25);
+  box-shadow: var(--rings, 0 0 0 0 transparent), 0 1px 6px rgba(0,0,0,0.20);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.glyph-marker__icon svg {
+  width: 60%;
+  height: 60%;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Icon-only category markers (spiderfy + story mode).
+   No coloured blob: just a crisp glyph with a subtle white halo and optional rings. */
+.icon-only-marker {
+  width: var(--sz, 32px);
+  height: var(--sz, 32px);
+  /* No "badge" background: keep the glyph floating directly on the basemap. */
+  background: transparent;
+  border-radius: 999px; /* rings look nicer as circles */
+  /* Comunità rings only (no default shadow box) */
+  box-shadow: var(--rings, 0 0 0 0 transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-only-marker__icon {
+  /* Keep the icon clean: no white halo / contour. */
+  filter: saturate(1.2) contrast(1.02);
+}
+
+.icon-only-marker__icon svg {
+  width: 94%;
+  height: 94%;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 3.4; /* bolder glyphs */
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+
+/* --- Filters control: monochrome SVG icons --- */
+.filters-control .filter-icon svg,
+#sidebar .filter-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: #111;
+  fill: none;
+  stroke-width: 2.6; /* more legible in the legend */
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.filters-control .filter-icon svg circle,
+#sidebar .filter-icon svg circle {
+  fill: none;
+}
+
+/* --- Sidebar Categoria filter (moved from map control) --- */
+#sidebar .sidebar-filters {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+/* --- Sidebar search + Categoria dropdown --- */
+#sidebar .sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+}
+
+#sidebar .sidebar-search .search-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: #111;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#sidebar .sidebar-search input[type="search"] {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: #111;
+  min-width: 0;
+}
+
+#sidebar .sidebar-search input[type="search"]::placeholder {
+  color: rgba(0,0,0,0.45);
+}
+
+#sidebar .sidebar-cat-select {
+  margin-top: 10px;
+}
+
+#sidebar .sidebar-filter-label {
+  display: block;
+  font-size: 13px;
+  color: #111;
+  margin: 0 0 6px 0;
+}
+
+#sidebar select.sidebar-select {
+  width: 100%;
+  padding: 8px 10px;
+  min-height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+  font-size: 13px;
+  color: #111;
+}
+
+#sidebar select.sidebar-select:focus {
+  outline: none;
+  border-color: rgba(0,0,0,0.24);
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+#sidebar .sidebar-filter-head {
+  font-size: 13px;
+  color: #111;
+  margin: 0 0 8px 0;
+}
+
+#sidebar .sidebar-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+  cursor: pointer;
+  user-select: none;
+}
+
+#sidebar .sidebar-cat-row:hover {
+  border-color: rgba(0,0,0,0.22);
+  background: rgba(0,0,0,0.03);
+}
+
+#sidebar .sidebar-cat-row input[type="checkbox"] {
+  margin: 0;
+  transform: scale(1.1);
+}
+
+#sidebar .sidebar-cat-label {
+  font-size: 13px;
+  color: #222;
+}
+
+
+/* --- Comunità dropdown control (highlight-only) --- */
+.community-control {
+  position: relative;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.community-control.leaflet-bar {
+  border: none;
+}
+
+.community-control .community-toggle {
+  width: 180px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.16);
+  background: rgba(255,255,255,0.98);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  text-align: left;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+/*
+  Stabilise the dropdown toggle.
+  easy-button.css applies `.leaflet-bar button:hover { width:26px; height:26px; ... }`.
+  Because this control sits inside a `.leaflet-bar`, the toggle would shrink on hover,
+  looking like it appears/disappears. Force the intended sizing on both states.
+*/
+.community-control .community-toggle,
+.community-control .community-toggle:hover {
+  width: 180px !important;
+  height: auto !important;
+  line-height: normal !important;
+  display: flex !important;
+  overflow: visible !important;
+  border: 1px solid rgba(0,0,0,0.16) !important;
+  border-bottom: 1px solid rgba(0,0,0,0.16) !important;
+  background-color: rgba(255,255,255,0.98) !important;
+}
+
+.community-control .community-toggle:hover {
+  border-color: rgba(0,0,0,0.22) !important;
+}
+
+.community-control.is-open .community-toggle {
+  border-color: rgba(0,0,0,0.28);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.20);
+}
+
+.community-control .community-chevron {
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0.75;
+  transition: transform 120ms ease;
+}
+
+.community-control.is-open .community-chevron {
+  transform: rotate(180deg);
+}
+
+.community-control .community-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+}
+
+/* Override easy-button square defaults inside the dropdown */
+.community-control.leaflet-bar button.aff-btn,
+.community-control.leaflet-bar button.aff-btn:hover {
+  width: 100% !important;
+  height: auto !important;
+  line-height: normal !important;
+  overflow: visible !important;
+  border-bottom: none !important;
+  text-align: left !important;
+}
+
+.community-control .aff-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 6px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  color: #222;
+}
+
+.community-control .aff-btn:hover {
+  border-color: rgba(0,0,0,0.22);
+}
+
+.community-control .aff-btn:active {
+  box-shadow: inset 0 1px 6px rgba(0,0,0,0.10);
+}
+
+.community-control .aff-btn.is-active {
+  border-color: rgba(0,0,0,0.32);
+  box-shadow: inset 0 2px 10px rgba(0,0,0,0.10);
+  background: rgba(0,0,0,0.06);
+}
+
+/* Coloured circles next to each community option */
+.community-control .aff-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--stroke, #111);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.18);
+  flex: 0 0 auto;
+}
+.community-control .aff-label {
+  flex: 1 1 auto;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+
+/* --- Categoria rows (make the left menu visually balanced with Comunità) --- */
+.filters-control .cat-row {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+  font-size: 14px;
+}
+.filters-control .cat-row:hover {
+  border-color: rgba(0,0,0,0.22);
+  background: rgba(0,0,0,0.03);
+}
+.filters-control .cat-row input[type="checkbox"] {
+  margin: 0;
+}
+
+/* --- Comunità buttons (single-select) --- */
+/*
+  IMPORTANT:
+  easy-button.css styles every `.leaflet-bar button` as a 26x26 square with `overflow:hidden`.
+  Our FiltersControl container also uses `leaflet-bar`, so we must override those defaults
+  for buttons in this control; otherwise labels get clipped and the menu becomes unusable.
+*/
+.filters-control.leaflet-bar button.aff-btn {
+  width: 100% !important;
+  height: auto !important;
+  line-height: normal !important;
+  overflow: visible !important;
+  border-bottom: none !important;
+  text-align: left !important;
+}
+
+.filters-control .aff-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 6px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.14);
+  background: rgba(255,255,255,0.98);
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 34px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  color: #222;
+  text-align: left;
+}
+.filters-control .aff-btn:hover {
+  border-color: rgba(0,0,0,0.22);
+}
+.filters-control .aff-btn:active {
+  /* keep the layout stable: show a pressed state without shifting */
+  box-shadow: inset 0 1px 6px rgba(0,0,0,0.10);
+}
+.filters-control .aff-btn.is-active {
+  border-color: rgba(0,0,0,0.32);
+  box-shadow: inset 0 2px 10px rgba(0,0,0,0.10);
+  background: rgba(0,0,0,0.06);
+}
+.filters-control .aff-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  border: 3px solid var(--stroke, #111);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.filters-control .aff-label {
+  flex: 1 1 auto;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+
+/* Selected item in the list: emphasise with category colour */
+.place-item.is-selected {
+  border-left: 6px solid var(--sel, rgba(0,0,0,0.35));
+}
+
+/* ===============================
+   TimeDimension control icons
+   ===============================
+   Leaflet.TimeDimension default CSS relies on Bootstrap Glyphicons hosted on a CDN.
+   When working offline (file://) those fonts don't load, leaving blank controls.
+   Override icons with Unicode symbols (no external font required).
+*/
+
+/* Ensure the pseudo-elements use the normal font, not missing Glyphicons */
+.leaflet-bar-timecontrol .leaflet-control-timecontrol:before {
+  font-family: inherit !important;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 26px;
+}
+
+/* Playback / nav icons */
+.timecontrol-play:before { content: "▶"; position: absolute; left: 0; right: 0; top: 0; }
+.timecontrol-play.reverse:before { content: "◀"; transform: none !important; -webkit-transform: none !important; }
+.timecontrol-play.pause:before { content: "⏸"; }
+.timecontrol-play.reverse.pause:before { content: "⏸"; }
+.timecontrol-stop:before { content: "⏹"; }
+.timecontrol-forward:before { content: "⏭"; }
+.timecontrol-backward:before { content: "⏮"; }
+.timecontrol-loop:before { content: "⟲"; }
+
+/* Loading spinner replacement */
+a.timecontrol-play.loading:before,
+.timecontrol-date.loading:before {
+  content: "⟳";
+  opacity: 0.75;
+  -webkit-animation: icon-rotation 1.2s infinite linear;
+  animation: icon-rotation 1.2s infinite linear;
+}
+
+/* Speed icon: removed (user prefers no arrow next to fps) */
+.timecontrol-speed:before { content: ""; }
+
+
+/* --- Top-right header: Time slider + Year box --- */
+.topright-timeyear{display:flex;flex-direction:row;gap:10px;align-items:stretch;justify-content:flex-end;pointer-events:auto;}
+.topright-timeyear .leaflet-control{margin:0 !important;}
+/* Make the time control more compact in top-right */
+.topright-timeyear .leaflet-control-timecontrol{margin:0 !important;}
+.topright-timeyear .leaflet-control-timecontrol .timecontrol{padding:4px 6px;}
+.topright-timeyear .leaflet-control-timecontrol .timecontrol .timecontrol-speed{min-width:70px;}
+.topright-timeyear .yearbox{min-width:72px;}
+.topright-timeyear .yearbox h1{margin:0;line-height:1.2;font-size:20px;}
+
+/* ===============================
+   v49 refinements: touch, popup, labels, sidebar
+   =============================== */
+
+.community-control,
+.community-control .community-toggle,
+.community-control .community-panel,
+.community-control .aff-btn,
+#sidebar .sidebar-btn,
+#sidebar .place-item,
+#sidebar select,
+#sidebar input[type="search"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.community-control .community-toggle,
+.community-control .aff-btn,
+#sidebar .place-item,
+#sidebar button.sidebar-btn {
+  cursor: pointer;
+}
+
+.community-control .community-panel {
+  overscroll-behavior: contain;
+}
+
+
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-tip-container {
+  display: none;
+}
+
+.popup-connector-pane {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 680;
+}
+
+.popup-connector-line {
+  position: absolute;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.98);
+  border: 1px solid rgba(120,120,120,0.28);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  transform-origin: 0 50%;
+}
+
+.popup-connector-line::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 1px solid rgba(120,120,120,0.28);
+  border-right: 1px solid rgba(120,120,120,0.28);
+  background: rgba(255,255,255,0.98);
+  transform: translate(35%, -50%) rotate(45deg);
+  border-radius: 1px;
+  box-shadow: 1px -1px 2px rgba(0,0,0,0.04);
+}
+
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content-wrapper {
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  position: relative;
+  overflow: visible;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content-wrapper::after {
+  content: none;
+}
+
+
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content {
+  margin: 14px 16px;
+  min-width: 0;
+}
+
+.mini-popup__title {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: #111;
+}
+
+.mini-popup__meta {
+  display: grid;
+  gap: 5px;
+}
+
+.mini-popup__line {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: #222;
+}
+
+.leaflet-tooltip.phase-label {
+  background: rgba(255,255,255,0.90);
+  border: 1px solid rgba(0,0,0,0.09);
+  border-radius: 999px;
+  padding: 3px 6px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+  font-size: 11px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: rgba(17,17,17,0.90);
+  letter-spacing: .01em;
+}
+
+#sidebar {
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(8px);
+}
+
+#sidebar .sidebar-header {
+  padding: 16px 14px 12px 14px;
+}
+
+#sidebar .sidebar-title h3 {
+  font-size: 24px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+#sidebar .sidebar-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #5b5b5b;
+  align-items: center;
+}
+
+#sidebar .sidebar-filters {
+  padding-top: 10px;
+}
+
+.place-info {
+  padding: 14px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.02), rgba(0,0,0,0));
+}
+
+.place-info-title {
+  font-size: 19px;
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+
+.place-info-meta {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pill {
+  font-size: 12px;
+  padding: 5px 9px;
+}
+
+.place-info-line {
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 0;
+  margin: 0 0 8px 0;
+}
+
+.place-info-desc {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  min-height: 0;
+  color: #1f1f1f;
+}
+
+#placesList {
+  padding: 10px 8px 14px 8px;
+}
+
+.place-section {
+  margin: 8px 0 14px 0;
+}
+
+.place-section-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(255,255,255,0.98);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.place-item {
+  padding: 12px;
+  margin: 7px 6px;
+  border-radius: 12px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.05);
+}
+
+.place-item:hover,
+.place-item:focus {
+  border-color: rgba(0,0,0,0.18);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+  outline: none;
+}
+
+.place-name {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 700;
+  margin-bottom: 7px;
+  color: #111;
+}
+
+.place-meta {
+  font-size: 12px;
+  color: #565656;
+  align-items: center;
+}
+
+.place-cat {
+  gap: 5px;
+}
+
+@media (max-width: 820px) {
+  #sidebar .sidebar-title h3 {
+    font-size: 20px;
+  }
+
+  .place-info-title {
+    font-size: 17px;
+  }
+
+  .place-name {
+    font-size: 14px;
+  }
+}
+
+.place-section-toggle {
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 14px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.place-section-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.place-section-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #666;
+  font-weight: 700;
+}
+.place-section-chevron {
+  font-size: 18px;
+  line-height: 1;
+  color: #666;
+  width: 18px;
+  text-align: center;
+}
+.place-section-toggle.is-open {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.place-item {
+  width: calc(100% - 12px);
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+
+.sidebar-project-intro {
+  margin: 10px 6px 2px 6px;
+  padding: 14px 15px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.9);
+  color: #333;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.04);
+}
+.sidebar-project-intro[hidden] { display: none !important; }
+.sidebar-project-intro h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #111;
+}
+.sidebar-project-intro p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #444;
+}
+.place-section-items[hidden] { display: none !important; }
+
+
+.place-section-toggle,
+.place-item {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0,0,0,0.06);
+}
+
+
+#sidebar button.sidebar-btn { opacity: 1; }
+#sidebar button.sidebar-btn[disabled] { opacity: 0.55; }
+
+/* Hide the legacy Leaflet search control on the map (search lives in the sidebar). */
+.leaflet-control-search,
+.search-exp {
+  display: none !important;
+}
+
+/* Sidebar category buttons: larger and bolder for stronger hierarchy. */
+.place-section-toggle {
+  font-size: 15px;
+  font-weight: 800;
+}
+.place-section-head-main {
+  font-size: 15px;
+  font-weight: 800;
+}
+.place-section-count {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+
+/* v74 fixes: prevent sidebar cards from overflowing */
+.place-section-toggle,
+.place-item,
+.place-meta,
+.place-cat,
+.place-name,
+.place-years { box-sizing: border-box; min-width: 0; }
+.place-section-toggle, .place-item { width: calc(100% - 12px); max-width: calc(100% - 12px); }
+.place-name { overflow-wrap: anywhere; word-break: break-word; }
+.place-meta { align-items: center; }
+.place-cat { flex: 1 1 auto; min-width: 0; }
+.place-cat > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.place-years { flex: 0 0 auto; padding-left: 8px; }
+
+/* Popup connector refined */
+.popup-connector-line { height: 4px; opacity: 0.98; }
+
+
+/* === v83 bilingual + style refresh === */
+html, body, input, button, select, textarea,
+.leaflet-container, .leaflet-control, .leaflet-popup-content-wrapper, #sidebar {
+  font-family: "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+/* Sidebar */
+#sidebar {
+  background: #FFFCF8 !important;
+  border-radius: 0 !important;
+  box-shadow: -2px 0 10px rgba(0,0,0,0.06);
+}
+#sidebar .sidebar-header,
+#sidebar .place-info,
+#sidebar .place-item,
+#sidebar .sidebar-search,
+#sidebar button.sidebar-btn {
+  border-radius: 0 !important;
+}
+.place-section-toggle {
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  letter-spacing: .02em;
+}
+#sidebar .place-item,
+.place-section-toggle {
+  background: #FFFCF8 !important;
+}
+
+/* Count markers */
+.count-marker {
+  color: #fff !important;
+  border: 1px solid #fff !important;
+  box-shadow: var(--rings), 0 4px 12px rgba(0,0,0,0.16) !important;
+}
+.count-marker.count-1 { background: #f17e5a !important; }
+.count-marker.count-2 { background: #e55433 !important; }
+.count-marker.count-3 { background: #d83419 !important; }
+.count-marker.count-4 { background: #bc1600 !important; }
+.count-marker.count-5 { background: #9e0f00 !important; }
+.count-marker.count-6 { background: #720800 !important; }
+
+/* All non-community icons */
+.icon-only-marker__icon,
+.place-kind-icon,
+.pill-ico,
+#sidebar .filter-icon svg {
+  color: #f17e5a !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+#sidebar .filter-icon svg circle,
+#sidebar .filter-icon svg path,
+#sidebar .filter-icon svg line,
+#sidebar .filter-icon svg polyline,
+#sidebar .filter-icon svg polygon {
+  stroke: currentColor !important;
+  fill: none !important;
+}
+#sidebar .filter-icon svg circle[fill],
+#sidebar .filter-icon svg polygon[fill],
+#sidebar .filter-icon svg path[fill] {
+  fill: currentColor !important;
+}
+
+/* Community dropdown */
+.community-control .community-toggle,
+.language-control,
+.leaflet-control-zoom a,
+.leaflet-control-coordinates,
+.topright-timeyear .leaflet-control-timecontrol .timecontrol,
+.topright-timeyear .yearbox {
+  border: 1px solid rgba(0,0,0,0.14) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08) !important;
+  background: rgba(255,255,255,0.97) !important;
+}
+.community-control .community-toggle {
+  width: 180px !important;
+}
+.community-control .community-panel {
+  width: 320px;
+  padding: 10px 12px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(0,0,0,0.14) !important;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.12) !important;
+  background: rgba(255,255,255,0.98) !important;
+}
+.community-control .aff-btn {
+  gap: 10px;
+  margin: 2px 0 !important;
+  padding: 4px 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 28px !important;
+}
+.community-control .aff-btn:hover {
+  background: rgba(0,0,0,0.03) !important;
+}
+.community-control .aff-btn.is-active {
+  background: rgba(0,0,0,0.05) !important;
+  font-weight: 700 !important;
+}
+.community-control .aff-swatch {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  border: 3px solid var(--stroke, #111) !important;
+  box-shadow: none !important;
+}
+.community-control .aff-label {
+  font-size: 13px;
+}
+
+/* Language switch */
+.language-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  overflow: hidden;
+}
+.language-control .lang-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 28px;
+  text-decoration: none;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 6px;
+  background: transparent;
+}
+.language-control .lang-btn:hover {
+  background: rgba(0,0,0,0.05);
+}
+.language-control .lang-btn.is-active {
+  background: rgba(0,0,0,0.08);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);
+}
+
+/* Popup and controls polish */
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content-wrapper {
+  border-radius: 18px !important;
+}
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content-wrapper::after {
+  border-color: rgba(80,80,80,0.18) !important;
+}
+
+/* Ensure community panel rows never clip */
+.community-control .aff-btn,
+.community-control .aff-label {
+  white-space: normal !important;
+}
+
+
+/* Keep language flags to the LEFT of the Community dropdown */
+.topright-lang-community {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: flex-end;
+  pointer-events: auto;
+}
+.topright-lang-community .leaflet-control {
+  margin: 0 !important;
+}
+.topright-lang-community .language-control {
+  order: 1;
+}
+.topright-lang-community .community-control {
+  order: 2;
+}
+
+
+
+/* === vNext sidebar and popup refinements === */
+#sidebar{
+  --sidebar-w: 420px;
+}
+
+.place-info-desc{
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.place-info-line{
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.place-meta,
+.place-name,
+.place-section-head,
+#sidebar .sidebar-sub,
+#sidebar button.sidebar-btn,
+#sidebar .sidebar-filter-label,
+#sidebar select.sidebar-select,
+#sidebar .sidebar-cat-label,
+.sidebar-project-intro p,
+.sidebar-project-intro h4{
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content{
+  margin: 12px 20px 12px 12px;
+}
+
+.leaflet-popup.leaflet-popup--mini .leaflet-popup-content-wrapper{
+  border-radius: 12px !important;
+  color: #3F4247;
+}
+
+
+/* v90: keep top-right language/community controls clear of sidebar on wider layouts */
+.topright-lang-community{max-width:min(360px, calc(100vw - var(--sidebar-w, 420px) - 40px));}
+.topright-lang-community .community-control .community-toggle{max-width:220px;}
+@media (max-width: 1300px){
+  .topright-lang-community{gap:6px;}
+  .topright-lang-community .community-control .community-toggle{max-width:180px;}
+}
+
+/* v95: enlarge how-to title by one more point */
+.sidebar-project-intro h4 { font-size: 15px !important; line-height: 1.35; }
+
+
+.place-info-source{
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #3F4247;
+  font-weight: 400;
+}
+
+
+.mini-popup__line--source{
+  margin-top: 8px !important;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #3F4247;
+  font-weight: 400;
+  display: block;
+}
+
+.place-cat .place-ico{margin-right:8px;}
+.place-section-head-main .place-ico{margin-right:4px;}
+
+/* v102: restore sidebar icon visibility and popup source */
+.place-ico{width:30px;height:30px;min-width:30px;min-height:30px;}
+.place-ico svg{width:28px !important;height:28px !important;stroke-width:2.35 !important;overflow:visible;}
+.place-ico--section svg{width:28px !important;height:28px !important;stroke-width:2.35 !important;}
+.place-section-head-main{gap:10px;align-items:center;}
+.place-cat{gap:8px;align-items:center;}
+.place-cat .place-ico{margin-right:0 !important;}
+.place-section-head-main .place-ico{margin-right:0 !important;}
+.mini-popup__line--source{display:block !important; white-space:normal !important;}
+
+
+/* v103: make sidebar category icons clearly visible */
+.place-ico {
+  width: 28px !important;
+  height: 28px !important;
+}
+.place-ico svg {
+  width: 28px !important;
+  height: 28px !important;
+  stroke-width: 2.8 !important;
+}
+.place-ico--section svg {
+  width: 26px !important;
+  height: 26px !important;
+  stroke-width: 2.8 !important;
+}
+.place-section-head-main {
+  gap: 12px !important;
+}
+.place-cat {
+  gap: 10px !important;
+}
+
+
+/* v104: reliable popup source and stronger sidebar icons */
+.place-ico,
+.place-ico--section,
+.place-kind-icon,
+.filter-icon {
+  color: #f17e5a !important;
+}
+.place-ico svg,
+.place-ico--section svg,
+.place-kind-icon svg,
+.filter-icon svg {
+  width: 30px !important;
+  height: 30px !important;
+  display: block;
+  overflow: visible;
+}
+.place-ico svg *,
+.place-ico--section svg *,
+.place-kind-icon svg *,
+.filter-icon svg * {
+  stroke: currentColor !important;
+  fill: none !important;
+  vector-effect: non-scaling-stroke;
+}
+.place-ico svg [fill]:not([fill="none"]),
+.place-ico--section svg [fill]:not([fill="none"]),
+.place-kind-icon svg [fill]:not([fill="none"]),
+.filter-icon svg [fill]:not([fill="none"]) {
+  fill: currentColor !important;
+}
+.place-section-toggle{align-items:center;}
+.place-section-head-main{gap:12px !important;}
+.place-cat{gap:10px !important;}
+.mini-popup__line--source{display:block !important; margin-top:10px !important; color:#3F4247 !important;}
+
+/* v105: unify Source/Fonte with the rest of popup/sidebar text */
+.place-info-source{
+  margin-top: 8px !important;
+  font-size: 12px !important;
+  line-height: 1.3 !important;
+  color: #3F4247 !important;
+  font-weight: 400 !important;
+}
+
+.mini-popup__line--source{
+  margin-top: 6px !important;
+  font-size: 12.5px !important;
+  line-height: 1.35 !important;
+  color: #222 !important;
+  font-weight: 400 !important;
+}
+
+
+/* v106 source/fonte popup alignment */
+.leaflet-popup.leaflet-popup--mini .mini-popup__line--source{
+  margin: 0 !important;
+  font-size: 12.5px !important;
+  line-height: 1.35 !important;
+  color: #222 !important;
+  font-weight: 400 !important;
+}
+.leaflet-popup.leaflet-popup--mini .mini-popup__line--source strong{
+  font-weight: 800 !important;
+  color: #111 !important;
+}
+
+
+/* v107: labels and sidebar wording refinements */
+.place-section-label{ text-transform: uppercase; letter-spacing: .02em; }
+.place-ico, .place-ico--section { width: 34px !important; height: 34px !important; min-width: 34px !important; min-height: 34px !important; }
+.place-ico svg, .place-ico--section svg, .place-kind-icon svg, .filter-icon svg { width: 34px !important; height: 34px !important; stroke-width: 2.9 !important; }
+.place-cat{ gap:12px !important; }
+.place-section-head-main{ gap:14px !important; }
+
+
+/* v108: sentence case section labels + wider community button */
+.place-section-label{ text-transform: none !important; letter-spacing: 0 !important; }
+.community-control .community-toggle,
+.community-control .community-toggle:hover{ width: 260px !important; }
+.community-control .community-toggle{ min-width: 260px !important; font-size: 12.5px !important; }
+.topright-lang-community{ max-width:min(460px, calc(100vw - var(--sidebar-w, 420px) - 24px)); }
+.topright-lang-community .community-control .community-toggle{ max-width:260px !important; }
+@media (max-width: 1300px){
+  .topright-lang-community .community-control .community-toggle{ max-width:220px !important; min-width:220px !important; }
+  .community-control .community-toggle, .community-control .community-toggle:hover{ width: 220px !important; }
+}
+
+
+/* v110 no flags */
+.language-control{display:none !important;}
+.topright-lang-community{max-width:min(340px, calc(100vw - var(--sidebar-w, 420px) - 24px));}
+.topright-lang-community .community-control .community-toggle{max-width:300px !important; min-width:300px !important;}
+@media (max-width: 1400px){.topright-lang-community .community-control .community-toggle{max-width:260px !important; min-width:260px !important;}}
+
+
+/* v112: remove top-right year box and align time bar with community dropdown */
+.topright-timeyear{display:flex;justify-content:flex-end;align-items:stretch;pointer-events:auto;}
+.topright-timeyear .leaflet-control{margin:0 !important;}
+.topright-timeyear .yearbox{display:none !important;}
+.topright-timeyear .leaflet-control-timecontrol{margin:0 !important;}

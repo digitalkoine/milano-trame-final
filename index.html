@@ -1,0 +1,2655 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset='utf-8' />
+      <title>Traces — Jewish Milan over time</title>
+      <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+
+      <link rel="stylesheet" href="./css/leaflet.css">
+      <script src="./js/leaflet.js"></script>
+
+      <script type="text/javascript" src="./js/Leaflet.Coordinates-0.1.5.min.js"></script>
+	    <link rel="stylesheet" href="./css/Leaflet.Coordinates-0.1.5.css"/>
+
+      <script src="js/Autolinker.min.js"></script>
+
+      <link rel="stylesheet" href="./css/leaflet-search.min.css"/>
+      <script src="js/leaflet-search.js"></script>
+
+      <link rel="stylesheet" href="./css/easy-button.css">
+      <script src="js/easy-button.js"></script>
+
+      <script type="text/javascript" src="./js/iso8601-js-period-master/iso8601.js"></script>
+
+      <script type="text/javascript" src="./js/Leaflet.TimeDimension-master/dist/leaflet.timedimension.min.js"></script>
+      <link rel="stylesheet" href="./js/Leaflet.TimeDimension-master/dist/leaflet.timedimension.control.min.css" />
+
+      <link rel="stylesheet" href="./css/MapStyle.css"/>
+      <link rel="stylesheet" href="./css/milano.css"/>
+
+      <script type="text/javascript" src="./js/milano_layer_style.js"></script>
+
+      <!-- Data -->
+      <script src="./data/milano_sites.js" type="text/javascript"></script>
+
+      <!-- GeoJSON builder -->
+      <script src="./js/trame/milano-geojson-creation.js" type="text/javascript"></script>
+
+      <!-- TimeDimension helper -->
+      <script type="text/javascript" src="./js/timedimension_layer_betweendates.js"></script>
+  </head>
+
+  <body>
+    <div id='map'></div>
+
+    <!-- Right sidebar: places visible in the current year -->
+    <div id="sidebar" aria-label="Places list">
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          <h3 id="sidebarTitle">Jewish Institutions in Milan<br>year <span id="sidebarYear">—</span></h3>
+          <button id="btnClearSelection" class="sidebar-btn" type="button">Reset</button>
+        </div>
+        <div class="sidebar-sub">
+          <span id="sidebarCount">0</span>
+          <span id="sidebarHint">Click a place to isolate it</span>
+        </div>
+        <div id="sidebarCategoryFilters" class="sidebar-filters" aria-label="Category filters"></div>
+      </div>
+      <!-- Info box (shown when a place/marker is clicked) -->
+      <div id="placeInfo" class="place-info" hidden></div>
+      <div id="placesList"></div>
+    </div>
+
+    <script type="text/javascript" src="./js/timedimension_map_milano.js"></script>
+<script>
+
+      // ---- Normalisers (robust matching across dataset quirks) ----
+      // Some entries may contain trailing spaces or multiple inner spaces.
+      // We normalise to compare reliably (case-insensitive, trimmed, collapsed whitespace).
+      function normSiteName(v) {
+        return (v == null ? "" : String(v))
+          .replace(/\s+/g, " " )
+          .trim()
+          .toLowerCase();
+      }
+
+      // ---- Derive slider interval from data (fallback to 1927–2026) ----
+      function getYearRange(arr) {
+        var minY = 9999, maxY = 0;
+        for (var i = 0; i < arr.length; i++) {
+          var s = Number(arr[i].start_year);
+          var e = Number(arr[i].end_year);
+          if (!isNaN(s)) minY = Math.min(minY, s);
+          if (!isNaN(e)) maxY = Math.max(maxY, e);
+        }
+        if (minY === 9999) minY = 1927;
+        if (maxY === 0) maxY = 2026;
+        return { min: minY, max: maxY };
+      }
+
+      var yr = getYearRange(milanoSites);
+      var startISO = yr.min + "-01-01";
+      var endISO = yr.max + "-12-31";
+
+      var map = createAndSetUpMapMilano(startISO, endISO);
+
+      // ---- Build points GeoJSON ----
+      var sitesGeojson = buildPointsForSites(milanoSites);
+
+      // ---- Initial framing: keep the view centred on Milano and include all points ----
+      // The right sidebar occupies part of the map, so we compensate with right padding
+      // and a slightly tighter bound to keep the city more centred without hiding outer points.
+      try {
+        var bb = L.latLngBounds([]);
+        (sitesGeojson.features || []).forEach(function(f){
+          var g = f && f.geometry;
+          if (!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) return;
+          var lng = Number(g.coordinates[0]);
+          var lat = Number(g.coordinates[1]);
+          if (isNaN(lat) || isNaN(lng)) return;
+          bb.extend([lat, lng]);
+        });
+        if (bb && bb.isValid && bb.isValid()) {
+          setTimeout(function(){
+            try {
+              map.fitBounds(bb.pad(0.06), {
+                maxZoom: 13,
+                paddingTopLeft: [24, 24],
+                paddingBottomRight: [360, 32]
+              });
+            } catch(e) {}
+          }, 0);
+        }
+      } catch(e) {}
+
+      // ---- Category list (used to build the checkbox filter UI) ----
+      // We collect distinct categories from the dataset and keep the original labels for display.
+      function getCategories(arr) {
+        var seen = {};
+        for (var i = 0; i < arr.length; i++) {
+          var c = (arr[i].categoria || '').toString().trim();
+          if (c) seen[c.toLowerCase()] = c;
+        }
+        var out = Object.keys(seen).map(function(k){ return seen[k]; });
+        out.sort(function(a,b){ return a.localeCompare(b, 'it'); });
+        return out;
+      }
+
+      
+
+// ---- Affiliation list (Comunità) ----
+function getAffiliations(arr) {
+  var seen = {};
+  var hasNone = false;
+  for (var i = 0; i < arr.length; i++) {
+    var a = (arr[i].affiliazione || '').toString().trim();
+    if (a) seen[a.toLowerCase()] = a;
+    else hasNone = true;
+  }
+  var out = Object.keys(seen).map(function(k){ return seen[k]; });
+  out.sort(function(a,b){ return a.localeCompare(b, 'it'); });
+  if (hasNone) out.unshift('(nessuna)');
+  return out;
+}
+
+var categories = getCategories(milanoSites);
+
+
+var affiliations = getAffiliations(milanoSites);
+
+var affiliationsLowerAll = affiliations.map(function(x){ return (x || '').toString().trim().toLowerCase(); });
+// NOTE: Comunità is used for HIGHLIGHTING ONLY (marker outlines).
+// It must not filter which points are shown.
+var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward compatibility (always = all)
+
+// Comunità selection state (multi-select highlight)
+// Empty = no highlight (no outlines)
+var selectedAffiliationsLower = [];
+
+// Deterministic outline colours for communities (used as marker borders)
+var AFF_OUTLINE_COLORS = (function(){
+  var fixed = {
+    '(nessuna)': '#8e8e8e',
+    '(none)': '#8e8e8e',
+    'chabad': '#3da9d9',
+    'libanese community': '#6a4c9c',
+    'comunità libanese': '#6a4c9c',
+    'migrants from middle east and north africa': '#9fbf3b',
+    'migranti dal medio oriente e dal nord africa': '#9fbf3b',
+    'milanese community': '#69c77a',
+    'comunità milanese': '#69c77a',
+    'persian community': '#2448b8',
+    'comunità persiana': '#2448b8',
+    'postwar european refugees': '#4a9370',
+    'profughi europei del dopoguerra': '#4a9370'
+  };
+  var coolFallback = ['#3da9d9','#6a4c9c','#9fbf3b','#69c77a','#2448b8','#4a9370','#5d6d7e','#5bc0be'];
+  var m = {};
+  for (var i=0;i<affiliationsLowerAll.length;i++){
+    var k = affiliationsLowerAll[i];
+    m[k] = fixed[k] || coolFallback[i % coolFallback.length];
+  }
+  if (!m['(nessuna)']) m['(nessuna)'] = '#8e8e8e';
+  if (!m['(none)']) m['(none)'] = '#8e8e8e';
+  return m;
+})();
+
+
+      var categoriesLowerAll = categories.map(function(x){ return (x || '').toString().trim().toLowerCase(); });
+      var activeCategoriesLower = categoriesLowerAll.slice(); // start with all selected
+
+      // Category colours (used by the point style and by the checkbox 'swatches').
+      // Keys are normalised to lower-case so matching is robust.
+      // If your dataset uses different labels, add aliases here (e.g., 'associazioni' -> same blue).
+      var CATEGORY_COLORS = {
+        "religioso": "#f17e5a",
+        "religious institution": "#f17e5a",
+        "istituzione religiosa": "#f17e5a",
+        "educazione": "#f17e5a",
+        "school": "#f17e5a",
+        "scuola": "#f17e5a",
+        "associazione": "#f17e5a",
+        "association": "#f17e5a",
+        "associazioni": "#f17e5a",
+        "comunitario": "#f17e5a",
+        "assistenza": "#f17e5a",
+        "welfare institution": "#f17e5a",
+        "organizzazione assistenziale": "#f17e5a",
+        "altro": "#f17e5a",
+        "other": "#f17e5a",
+        "altro / non classificato": "#f17e5a",
+        "non classificato": "#f17e5a"
+      };
+
+      
+      function getPopupSourceInfo(p) {
+        if (!p) return '';
+        var direct = p.fonti || p.fonte || p.Fonti || p.sources || p.source || p.Sources || '';
+        if (direct) return String(direct).trim();
+        if (window.milanoSites && Array.isArray(window.milanoSites)) {
+          var sito = String(p.sito || '').trim();
+          var sy = String(p.start_year == null ? '' : p.start_year).trim();
+          var ey = String(p.end_year == null ? '' : p.end_year).trim();
+          for (var i = 0; i < window.milanoSites.length; i++) {
+            var r = window.milanoSites[i] || {};
+            if (String(r.sito || '').trim() !== sito) continue;
+            var rsy = String(r.start_year == null ? '' : r.start_year).trim();
+            var rey = String(r.end_year == null ? '' : r.end_year).trim();
+            if ((sy && rsy && sy !== rsy) || (ey && rey && ey !== rey)) continue;
+            var v = r.fonti || r.fonte || r.Fonti || r.sources || r.source || r.Sources || '';
+            if (v) return String(v).trim();
+          }
+          for (var j = 0; j < window.milanoSites.length; j++) {
+            var rr = window.milanoSites[j] || {};
+            if (String(rr.sito || '').trim() !== sito) continue;
+            var vv = rr.fonti || rr.fonte || rr.Fonti || rr.sources || rr.source || rr.Sources || '';
+            if (vv) return String(vv).trim();
+          }
+        }
+        return '';
+      }
+
+function bindPopupHtml(feature, layer) {
+        var p = feature.properties || {};
+        var yearsLabel = '';
+        if ((p.end_year === null || p.end_year === undefined || p.end_year === '' || String(p.end_year).toLowerCase() === 'null') && p.start_year) {
+          yearsLabel = String(p.start_year) + '–';
+        } else if (p.start_year === p.end_year) {
+          yearsLabel = String(p.start_year || '');
+        } else {
+          yearsLabel = String(p.start_year || '') + "–" + String(p.end_year || '');
+        }
+
+        var srcInfo = p.sources || p.source || p.Sources || p.fonti || p.fonte || p.Fonti || '';
+        if (!srcInfo && window.sitesGeojson && sitesGeojson.features) {
+          for (var si = 0; si < sitesGeojson.features.length; si++) {
+            var sp = (sitesGeojson.features[si] && sitesGeojson.features[si].properties) ? sitesGeojson.features[si].properties : {};
+            if (String(sp.sito||'') === String(p.sito||'')) {
+              srcInfo = sp.sources || sp.fonti || sp.source || sp.fonte || sp.Sources || sp.Fonti || '';
+              if (srcInfo) break;
+            }
+          }
+        }
+        var html = ''
+          + '<div class="mini-popup">'
+          + '<h2 class="mini-popup__title">' + (p.sito || '') + '</h2>'
+          + '<div class="mini-popup__meta">'
+          +   '<p class="mini-popup__line"><strong>Category:</strong> ' + (p.categoria || p.category || '') + '</p>'
+          +   (p.affiliazione ? '<p class="mini-popup__line"><strong>Institution established by:</strong> ' + p.affiliazione + '</p>' : '')
+          +   (p.indirizzo ? '<p class="mini-popup__line"><strong>Address:</strong> ' + p.indirizzo + '</p>' : '')
+          +   '<p class="mini-popup__line"><strong>Active between:</strong> ' + yearsLabel + '</p>'
+          +   (srcInfo ? '<p class="mini-popup__line mini-popup__line--source"><strong>Source:</strong> ' + srcInfo + '</p>' : '')
+          + '</div>'
+          + '</div>';
+
+        // Default behaviour: opening a popup closes the previous one.
+        // This keeps the map readable when moving across many phases.
+        layer.bindPopup(html, {
+          autoClose: true,
+          closeOnClick: true,
+          closeButton: true,
+          keepInView: true,
+          maxWidth: 280,
+          minWidth: 210,
+          className: 'leaflet-popup--mini'
+        });
+
+        layer.on('popupopen', function(){
+          setTimeout(function(){
+            try { applySmartPopupPlacement(layer); } catch(errp) {}
+            try { updatePopupConnector(layer); } catch(errc) {}
+            try { layoutStoryPhaseLabels(); } catch(errl) {}
+          }, 0);
+        });
+        layer.on('popupclose', function(){
+          setTimeout(function(){
+            try { clearPopupConnector(layer); } catch(errc2) {}
+            try { layoutStoryPhaseLabels(); } catch(errl2) {}
+          }, 0);
+        });
+      }
+
+
+      // Extra interactions:
+      // - Clicking a marker in the general view isolates that place and shows its story (all phases).
+      // - In story mode, each phase shows its date range as a permanent label above the marker.
+      var selectedFocusUid = null;
+
+      function bindFeatureInteractions(feature, layer) {
+        var p = (feature && feature.properties) ? feature.properties : {};
+        var siteName = normSiteName(p.sito);
+
+        // In story mode: we used to show date ranges as labels above markers,
+        // but it made the map harder to read. Dates remain visible in popups and sidebar.
+
+        // Click handling:
+        // - In the GENERAL view, clicks are managed by updateOverlapStyles() so stacks can "spiderfy".
+        // - In STORY mode (isolated place), we keep a simple click to open popup + update focus.
+        if (selectedSiteName) {
+          layer.on('click', function(e) {
+            if (!p || !siteName) return;
+            selectedFocusUid = String(p.uid || '');
+            try { renderPlaceInfoForSelected(); } catch(err) {}
+            try { layer.openPopup(); } catch(err2) {}
+            try { if (e) L.DomEvent.stop(e); } catch(err3) {}
+          });
+        }
+      }
+
+      function onEachSiteFeature(feature, layer) {
+        bindPopupHtml(feature, layer);
+        bindFeatureInteractions(feature, layer);
+        // Story mode: show phase dates near markers (helps read movements)
+        if (selectedSiteName) {
+          try { bindStoryPhaseLabel(feature, layer); } catch(e) {}
+        }
+      }
+
+function buildLayers(selectedCategoriesLower, selectedAffiliationsLower) {
+  // selectedCategoriesLower: array of lower-cased categories to show.
+  // If null/undefined -> show all. If empty -> show none.
+  var selected = Array.isArray(selectedCategoriesLower)
+    ? selectedCategoriesLower.map(function(x){ return (x || '').toString().trim().toLowerCase(); }).filter(Boolean)
+    : null;
+
+  // Comunità selection is highlight-only, so we DO NOT filter features by affiliation.
+  // (selectedAffiliationsLower is ignored and kept only for backward compatibility.)
+  var selectedAff = null;
+
+  var filtered;
+  if (selected === null) {
+    filtered = sitesGeojson;
+  } else if (selected.length === 0) {
+    filtered = { type: 'FeatureCollection', features: [] };
+  } else {
+    // Filter features whose categoria is in selected
+    filtered = {
+      type: 'FeatureCollection',
+      features: (sitesGeojson.features || []).filter(function(f) {
+        var p = (f.properties || {});
+        var craw = (p.category && p.category.toString().trim()) ? p.category : (p.categoria || '');
+        var c = craw.toString().trim().toLowerCase();
+        return (selected.indexOf(c) !== -1);
+      })
+    };
+  }
+
+  // Optional: isolate one place entity by `sito` (story mode in the right sidebar).
+  // In story mode we intentionally show *all* phases of that place, regardless of the
+  // category filter, so the user can follow changes over time.
+  if (selectedSiteName) {
+    filtered = {
+      type: 'FeatureCollection',
+      features: (sitesGeojson.features || []).filter(function(f){
+        return normSiteName((f.properties || {}).sito) === normSiteName(selectedSiteName);
+      })
+    };
+  }
+
+  var base = L.geoJSON(filtered, {
+    pointToLayer: function(feature, latlng) {
+      var p = (feature && feature.properties) ? feature.properties : {};
+      // Story mode: keep category colour so selection from the list is immediately recognisable
+      if (selectedSiteName) {
+        var present = [];
+        try {
+          for (var si = 0; si < (window.selectedAffiliationsLower || []).length; si++) {
+            var ksel = (window.selectedAffiliationsLower || [])[si];
+            if (featureHasSelectedAff(p, ksel)) present.push(ksel);
+          }
+        } catch(e) {}
+        var rings = present.length ? ringsCssForSelectedKeys(present) : '';
+        return L.marker(latlng, { icon: makeStoryIconForProperties(p, 32, rings) });
+      }
+      // Main chronology: base style will be refined by updateOverlapStyles()
+      return L.marker(latlng, { icon: makeCountIcon(1, PAL_LIGHT, 20, '') });
+    },
+    onEachFeature: onEachSiteFeature
+  });
+
+  // In story mode we keep ALL phases visible at once (static layer),
+  // and use the time slider to highlight the active phase (see updateStoryHighlight()).
+  var timed = null;
+  if (selectedSiteName) {
+    timed = base;
+  } else {
+    timed = L.TimeDimension.Layer.betweendates(
+      base,
+      { timeDimension: map.timeDimension }
+    );
+  }
+
+  return { base: base, timed: timed };
+}
+
+      // Initial layers (all categories)
+      var layers = buildLayers(null, null);
+      var baseGeoJsonLayer = layers.base;
+      var timeSitesLayer = layers.timed;
+
+      // ---- Layer selector removed (no longer needed) ----
+      // The project now has a single temporal layer always shown.
+      // Keeping Leaflet's layer control adds UI clutter.
+      var layerControl = null;
+
+      // Default: visible
+      timeSitesLayer.addTo(map);
+
+      // ---- Ensure a sane initial time + apply dynamic styling immediately ----
+      // Without this, the first render can show "inactive" styling until the first
+      // user-triggered time change (e.g. Reset).
+      try {
+        var minYear = null;
+        (sitesGeojson.features || []).forEach(function(f){
+          var y = Number((f.properties||{}).start_year);
+          if (!isNaN(y)) minYear = (minYear === null) ? y : Math.min(minYear, y);
+        });
+        if (minYear !== null && map.timeDimension) {
+          map.timeDimension.setCurrentTime(Date.UTC(minYear, 0, 1));
+        }
+      } catch(e) {}
+
+      // First paint (after TD builds its first _currentLayer)
+      try {
+        setTimeout(function(){
+          try { updateOverlapStyles(); } catch(e1) {}
+          try { updateSidebarList(); } catch(e2) {}
+        }, 0);
+      } catch(e) {}
+
+      // ---- Autoplay on load ----
+      // Start the TimeDimension player automatically when the map is ready.
+      try {
+        if (map && map._tdPlayer && typeof map._tdPlayer.start === 'function') {
+          // Small delay ensures the control/layers are fully attached.
+          setTimeout(function(){ try { map._tdPlayer.start(); } catch(e) {} }, 300);
+        }
+      } catch(e) {}
+
+
+// ---- Shared references (for rebuilding layers when filters change) ----
+var searchControl = null;
+
+// Sidebar selection state
+// When set, we enter "story mode" and isolate all records with the same `sito`
+// so the map shows how that place changes across time.
+var selectedSiteName = null;
+    selectedFocusUid = null;
+var selectedCategoryColor = null;
+var sidebarOpenCategories = {};
+
+// ---- Story mode helpers (dates + movement arrows) ----
+var storyIndexByUid = {};
+var storyPathLatLngs = [];
+var storyMovementLayer = null;
+var expandedSidebarCategoryLower = null;
+
+function clearStoryMovementLayer() {
+  try { if (storyMovementLayer && map) map.removeLayer(storyMovementLayer); } catch(e) {}
+  storyMovementLayer = null;
+}
+
+// Compute ordering + path for the currently selected place.
+
+function sentenceCaseLabel(str){
+  str = String(str || '').trim();
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+function computeStoryMeta(phases) {
+  storyIndexByUid = {};
+  storyPathLatLngs = [];
+  if (!Array.isArray(phases)) return;
+
+  for (var i = 0; i < phases.length; i++) {
+    var p = (phases[i] && phases[i].properties) ? phases[i].properties : ((phases[i] && phases[i].feature && phases[i].feature.properties) ? phases[i].feature.properties : {});
+    var uid = (p && (p.uid !== undefined) && p.uid !== null) ? String(p.uid) : String(i);
+    storyIndexByUid[uid] = i;
+
+    try {
+      var g = phases[i].geometry || (phases[i].feature ? phases[i].feature.geometry : null);
+      if (g && g.coordinates && g.coordinates.length >= 2) {
+        var ll = L.latLng(Number(g.coordinates[1]), Number(g.coordinates[0]));
+        if (!isNaN(ll.lat) && !isNaN(ll.lng)) storyPathLatLngs.push(ll);
+      }
+    } catch(e) {}
+  }
+
+  // Dedupe consecutive duplicates (no movement)
+  var dedup = [];
+  for (var j = 0; j < storyPathLatLngs.length; j++) {
+    var cur = storyPathLatLngs[j];
+    var prev = (dedup.length ? dedup[dedup.length - 1] : null);
+    if (!prev || (cur.lat !== prev.lat || cur.lng !== prev.lng)) dedup.push(cur);
+  }
+  storyPathLatLngs = dedup;
+}
+
+// Keep date labels visually anchored to their icon and move them only when needed.
+function storyTooltipBaseOffset(direction, dx, dy) {
+  var defaults = {
+    right: L.point(2, 0),
+    left: L.point(-2, 0),
+    top: L.point(0, -5),
+    bottom: L.point(0, 5)
+  };
+  var base = defaults[direction] || defaults.right;
+  return L.point(base.x + (Number(dx) || 0), base.y + (Number(dy) || 0));
+}
+
+function storyBoxesOverlap(a, b, padX, padY) {
+  var px = Number(padX) || 0;
+  var py = Number(padY) || 0;
+  return !(a.x2 + px < b.x1 || a.x1 > b.x2 + px || a.y2 + py < b.y1 || a.y1 > b.y2 + py);
+}
+
+function storyTooltipBoxForCandidate(pt, width, height, direction, offset) {
+  var x1 = pt.x;
+  var y1 = pt.y;
+
+  if (direction === 'left') {
+    x1 = pt.x + offset.x - width;
+    y1 = pt.y - height / 2 + offset.y;
+  } else if (direction === 'top') {
+    x1 = pt.x - width / 2 + offset.x;
+    y1 = pt.y + offset.y - height;
+  } else if (direction === 'bottom') {
+    x1 = pt.x - width / 2 + offset.x;
+    y1 = pt.y + offset.y;
+  } else {
+    x1 = pt.x + offset.x;
+    y1 = pt.y - height / 2 + offset.y;
+  }
+
+  return { x1: x1, y1: y1, x2: x1 + width, y2: y1 + height };
+}
+
+function storyMarkerBoxForLayer(layer, pt) {
+  var size = 26;
+  try {
+    var icon = layer && layer.options ? layer.options.icon : null;
+    var sz = icon && icon.options ? icon.options.iconSize : null;
+    if (Array.isArray(sz) && sz.length >= 2) size = Math.max(Number(sz[0]) || 0, Number(sz[1]) || 0) || size;
+  } catch(e) {}
+  var pad = 6;
+  var half = size / 2 + pad;
+  return { x1: pt.x - half, y1: pt.y - half, x2: pt.x + half, y2: pt.y + half };
+}
+
+function storyViewportPenalty(box, size, pad) {
+  if (!box || !size) return 9999;
+  var p = Number(pad) || 0;
+  var penalty = 0;
+  if (box.x1 < p) penalty += (p - box.x1);
+  if (box.y1 < p) penalty += (p - box.y1);
+  if (box.x2 > (size.x - p)) penalty += (box.x2 - (size.x - p));
+  if (box.y2 > (size.y - p)) penalty += (box.y2 - (size.y - p));
+  return penalty;
+}
+
+function storyNearbyCount(items, item, radiusPx) {
+  var r = Number(radiusPx) || 72;
+  var count = 0;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i] === item) continue;
+    var dx = items[i].pt.x - item.pt.x;
+    var dy = items[i].pt.y - item.pt.y;
+    if ((dx * dx + dy * dy) <= (r * r)) count++;
+  }
+  return count;
+}
+
+function storyPopupObstacleBox() {
+  try {
+    var pop = document.querySelector('.leaflet-popup.leaflet-popup--mini, .leaflet-popup');
+    if (!pop || !map || !map.getContainer) return null;
+    var popRect = pop.getBoundingClientRect();
+    var mapRect = map.getContainer().getBoundingClientRect();
+    if (!popRect || !mapRect) return null;
+    return {
+      x1: popRect.left - mapRect.left,
+      y1: popRect.top - mapRect.top,
+      x2: popRect.right - mapRect.left,
+      y2: popRect.bottom - mapRect.top
+    };
+  } catch(e) { return null; }
+}
+
+function storyPointToSegmentDistance(pt, a, b) {
+  if (!pt || !a || !b) return 9999;
+  var vx = b.x - a.x;
+  var vy = b.y - a.y;
+  var wx = pt.x - a.x;
+  var wy = pt.y - a.y;
+  var c1 = vx * wx + vy * wy;
+  if (c1 <= 0) return Math.sqrt((pt.x - a.x)*(pt.x - a.x) + (pt.y - a.y)*(pt.y - a.y));
+  var c2 = vx * vx + vy * vy;
+  if (c2 <= c1) return Math.sqrt((pt.x - b.x)*(pt.x - b.x) + (pt.y - b.y)*(pt.y - b.y));
+  var t = c1 / c2;
+  var px = a.x + t * vx;
+  var py = a.y + t * vy;
+  return Math.sqrt((pt.x - px)*(pt.x - px) + (pt.y - py)*(pt.y - py));
+}
+
+function storyLabelLinePenalty(box, segments) {
+  if (!box || !segments || !segments.length) return 0;
+  var center = { x: (box.x1 + box.x2) / 2, y: (box.y1 + box.y2) / 2 };
+  var penalty = 0;
+  for (var i = 0; i < segments.length; i++) {
+    var s = segments[i];
+    if (!s || !s.a || !s.b) continue;
+    var minX = Math.min(s.a.x, s.b.x) - 16;
+    var minY = Math.min(s.a.y, s.b.y) - 16;
+    var maxX = Math.max(s.a.x, s.b.x) + 16;
+    var maxY = Math.max(s.a.y, s.b.y) + 16;
+    var segBox = { x1:minX, y1:minY, x2:maxX, y2:maxY };
+    if (storyBoxesOverlap(box, segBox, 0, 0)) penalty += 1;
+    var d = storyPointToSegmentDistance(center, s.a, s.b);
+    if (d < 20) penalty += (20 - d) / 4;
+  }
+  return penalty;
+}
+
+function storyLabelCandidatesForItem(item, mapWidth, clusterCenter) {
+  var dxCenter = 0;
+  var dyCenter = 0;
+  if (clusterCenter) {
+    dxCenter = item.pt.x - clusterCenter.x;
+    dyCenter = item.pt.y - clusterCenter.y;
+  }
+
+  var horizontal = Math.abs(dxCenter) >= Math.abs(dyCenter);
+  var preferredSide = horizontal ? (dxCenter >= 0 ? 'right' : 'left') : (dyCenter >= 0 ? 'bottom' : 'top');
+  var secondarySide = preferredSide === 'right' ? 'left'
+    : preferredSide === 'left' ? 'right'
+    : preferredSide === 'top' ? 'bottom'
+    : 'top';
+
+  if (!clusterCenter) {
+    var preferLeft = !!(mapWidth && item.pt.x > (mapWidth * 0.68));
+    preferredSide = preferLeft ? 'left' : 'right';
+    secondarySide = preferLeft ? 'right' : 'left';
+  }
+
+  var variants = [];
+  var seen = {};
+
+  function add(direction, dx, dy, score) {
+    var key = [direction, dx, dy].join('|');
+    if (seen[key]) return;
+    seen[key] = true;
+    variants.push({ direction: direction, dx: dx, dy: dy, score: score });
+  }
+
+  var rings = [0, 2, 4, 6, 10, 14];
+  var sideNudges = [0, -6, 6, -12, 12, -18, 18];
+  var verticalNudges = [0, -6, 6, -12, 12, -18, 18];
+  var sideOrder = [preferredSide, secondarySide, 'top', 'bottom'];
+
+  for (var r = 0; r < rings.length; r++) {
+    var baseScore = r * 12;
+    for (var s = 0; s < sideOrder.length; s++) {
+      var dir = sideOrder[s];
+      var nudges = (dir === 'left' || dir === 'right') ? sideNudges : verticalNudges;
+      for (var n = 0; n < nudges.length; n++) {
+        if (dir === 'left' || dir === 'right') {
+          var signX = dir === 'right' ? 1 : -1;
+          add(dir, signX * rings[r], nudges[n], baseScore + s * 3 + n);
+        } else {
+          var signY = dir === 'bottom' ? 1 : -1;
+          add(dir, nudges[n], signY * rings[r], baseScore + s * 3 + n);
+        }
+      }
+    }
+  }
+
+  return variants.map(function(v){
+    var off = storyTooltipBaseOffset(v.direction, v.dx, v.dy);
+    return {
+      direction: v.direction,
+      offset: off,
+      box: storyTooltipBoxForCandidate(item.pt, item.width, item.height, v.direction, off),
+      score: v.score
+    };
+  });
+}
+
+function layoutStoryPhaseLabels() {
+  if (!selectedSiteName || !map || !baseGeoJsonLayer) return;
+
+  var mapSize = null;
+  try { mapSize = map.getSize(); } catch(e0) { mapSize = null; }
+
+  var items = [];
+  baseGeoJsonLayer.eachLayer(function(layer){
+    if (!layer || !layer.getLatLng || !layer.getTooltip) return;
+    var tip = null;
+    try { tip = layer.getTooltip(); } catch(e) { tip = null; }
+    if (!tip) return;
+
+    var el = null;
+    try { el = tip.getElement ? tip.getElement() : null; } catch(e2) { el = null; }
+    var width = el && el.offsetWidth ? el.offsetWidth : 84;
+    var height = el && el.offsetHeight ? el.offsetHeight : 30;
+    var pt = map.latLngToContainerPoint(layer.getLatLng());
+    var markerBox = storyMarkerBoxForLayer(layer, pt);
+
+    items.push({ layer: layer, tooltip: tip, pt: pt, width: width, height: height, markerBox: markerBox });
+  });
+
+  var clusterCenter = null;
+  if (items.length) {
+    var sx = 0, sy = 0;
+    items.forEach(function(item){ sx += item.pt.x; sy += item.pt.y; });
+    clusterCenter = { x: sx / items.length, y: sy / items.length };
+  }
+
+  items.forEach(function(item){
+    item.nearbyCount = storyNearbyCount(items, item, 88);
+  });
+
+  items.sort(function(a, b){
+    if (b.nearbyCount !== a.nearbyCount) return b.nearbyCount - a.nearbyCount;
+    if (a.pt.x !== b.pt.x) return a.pt.x - b.pt.x;
+    return a.pt.y - b.pt.y;
+  });
+
+  var markerObstacles = items.map(function(item){ return item.markerBox; });
+  var placedLabels = [];
+  var popupObstacle = storyPopupObstacleBox();
+  var ordered = items.slice().sort(function(a, b){
+    var auid = (a && a.layer && a.layer.feature && a.layer.feature.properties && a.layer.feature.properties.uid != null) ? String(a.layer.feature.properties.uid) : '';
+    var buid = (b && b.layer && b.layer.feature && b.layer.feature.properties && b.layer.feature.properties.uid != null) ? String(b.layer.feature.properties.uid) : '';
+    var ai = (storyIndexByUid && storyIndexByUid.hasOwnProperty(auid)) ? storyIndexByUid[auid] : 9999;
+    var bi = (storyIndexByUid && storyIndexByUid.hasOwnProperty(buid)) ? storyIndexByUid[buid] : 9999;
+    return ai - bi;
+  });
+  var lineSegments = [];
+  for (var s = 0; s < ordered.length - 1; s++) {
+    var pa = ordered[s] && ordered[s].pt;
+    var pb = ordered[s+1] && ordered[s+1].pt;
+    if (!pa || !pb) continue;
+    var dx = pb.x - pa.x, dy = pb.y - pa.y;
+    if ((dx*dx + dy*dy) < 4) continue;
+    lineSegments.push({ a: pa, b: pb });
+  }
+
+  items.forEach(function(item){
+    var candidates = storyLabelCandidatesForItem(item, mapSize ? mapSize.x : null, clusterCenter);
+    var fallback = null;
+    var chosen = null;
+
+    candidates.forEach(function(candidate){
+      var overlapMarkers = 0;
+      var overlapLabels = 0;
+      var overlapPopup = 0;
+      var viewportPenalty = storyViewportPenalty(candidate.box, mapSize, 10);
+      var linePenalty = storyLabelLinePenalty(candidate.box, lineSegments);
+
+      for (var i = 0; i < markerObstacles.length; i++) {
+        if (markerObstacles[i] === item.markerBox) continue;
+        if (storyBoxesOverlap(candidate.box, markerObstacles[i], 14, 12)) overlapMarkers++;
+      }
+      for (var j = 0; j < placedLabels.length; j++) {
+        if (storyBoxesOverlap(candidate.box, placedLabels[j], 16, 10)) overlapLabels++;
+      }
+      if (popupObstacle && storyBoxesOverlap(candidate.box, popupObstacle, 18, 16)) overlapPopup++;
+
+      var directionBias = (candidate.direction === 'right') ? 0 : (candidate.direction === 'left' ? 120 : 220);
+      candidate.totalPenalty = viewportPenalty + overlapMarkers * 2400 + overlapLabels * 3200 + overlapPopup * 4200 + linePenalty * 1400 + candidate.score + directionBias;
+      if (!fallback || candidate.totalPenalty < fallback.totalPenalty) fallback = candidate;
+      if (!chosen && overlapMarkers === 0 && overlapLabels === 0 && overlapPopup === 0 && linePenalty < 0.25 && viewportPenalty === 0) chosen = candidate;
+    });
+
+    var best = chosen || fallback || candidates[0];
+    if (!best) return;
+
+    try {
+      item.tooltip.options.direction = best.direction;
+      item.tooltip.options.offset = best.offset;
+      item.tooltip.update();
+    } catch(e3) {}
+
+    placedLabels.push(best.box);
+  });
+}
+
+
+
+function storyPopupBoxForCandidate(pt, width, height, offset) {
+  var tip = 16;
+  var x1 = pt.x - (width / 2) + offset.x;
+  var y1 = pt.y - height - tip + offset.y;
+  return { x1: x1, y1: y1, x2: x1 + width, y2: y1 + height + tip };
+}
+
+function storyPopupPreferredSides(pt, clusterCenter) {
+  if (!pt || !clusterCenter) return ['right','left','top','bottom'];
+  var dx = pt.x - clusterCenter.x;
+  var dy = pt.y - clusterCenter.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? ['right','top','bottom','left'] : ['left','top','bottom','right'];
+  }
+  return dy >= 0 ? ['bottom','right','left','top'] : ['top','right','left','bottom'];
+}
+
+function storyPopupCandidateOffsets(width, height, pt, clusterCenter) {
+  var halfW = Math.round(width / 2);
+  var halfH = Math.round(height / 2);
+  var near = 38;
+  var mid = 58;
+  var far = 82;
+  var diag = 28;
+  var bySide = {
+    right: [
+      { direction: 'right', offset: L.point(halfW + near, halfH - 12), score: 0 },
+      { direction: 'right', offset: L.point(halfW + mid, halfH - 12), score: 3 },
+      { direction: 'right', offset: L.point(halfW + far, halfH - 12), score: 7 },
+      { direction: 'right', offset: L.point(halfW + near + diag, 2), score: 5 },
+      { direction: 'right', offset: L.point(halfW + near + diag, height - 26), score: 6 }
+    ],
+    left: [
+      { direction: 'left', offset: L.point(-halfW - near, halfH - 12), score: 0 },
+      { direction: 'left', offset: L.point(-halfW - mid, halfH - 12), score: 3 },
+      { direction: 'left', offset: L.point(-halfW - far, halfH - 12), score: 7 },
+      { direction: 'left', offset: L.point(-halfW - near - diag, 2), score: 5 },
+      { direction: 'left', offset: L.point(-halfW - near - diag, height - 26), score: 6 }
+    ],
+    top: [
+      { direction: 'top', offset: L.point(0, -18), score: 0 },
+      { direction: 'top', offset: L.point(-(halfW * 0.4), -18), score: 4 },
+      { direction: 'top', offset: L.point((halfW * 0.4), -18), score: 4 },
+      { direction: 'top', offset: L.point(-(halfW * 0.7), -20), score: 8 },
+      { direction: 'top', offset: L.point((halfW * 0.7), -20), score: 8 }
+    ],
+    bottom: [
+      { direction: 'bottom', offset: L.point(0, height + 28), score: 0 },
+      { direction: 'bottom', offset: L.point(-(halfW * 0.4), height + 30), score: 5 },
+      { direction: 'bottom', offset: L.point((halfW * 0.4), height + 30), score: 5 },
+      { direction: 'bottom', offset: L.point(-(halfW * 0.7), height + 34), score: 10 },
+      { direction: 'bottom', offset: L.point((halfW * 0.7), height + 34), score: 10 }
+    ]
+  };
+
+  var orderedSides = storyPopupPreferredSides(pt, clusterCenter);
+  var candidates = [];
+  orderedSides.forEach(function(side, idx){
+    (bySide[side] || []).forEach(function(c){
+      candidates.push({ direction: c.direction, offset: c.offset, score: c.score + idx * 14 });
+    });
+  });
+  return candidates;
+}
+
+function storyBoxIntersectionArea(a, b, padX, padY) {
+  if (!a || !b) return 0;
+  var px = Number(padX) || 0;
+  var py = Number(padY) || 0;
+  var left = Math.max(a.x1, b.x1 - px);
+  var right = Math.min(a.x2, b.x2 + px);
+  var top = Math.max(a.y1, b.y1 - py);
+  var bottom = Math.min(a.y2, b.y2 + py);
+  if (right <= left || bottom <= top) return 0;
+  return (right - left) * (bottom - top);
+}
+
+
+var popupConnectorPane = null;
+function ensurePopupConnectorPane() {
+  if (popupConnectorPane && popupConnectorPane.parentNode) return popupConnectorPane;
+  if (!map || !map.getContainer) return null;
+  var container = map.getContainer();
+  if (!container) return null;
+  popupConnectorPane = container.querySelector('.popup-connector-pane');
+  if (!popupConnectorPane) {
+    popupConnectorPane = document.createElement('div');
+    popupConnectorPane.className = 'popup-connector-pane';
+    container.appendChild(popupConnectorPane);
+  }
+  return popupConnectorPane;
+}
+
+function clearPopupConnector(layer) {
+  var pane = ensurePopupConnectorPane();
+  if (!pane) return;
+  var targetId = null;
+  try { targetId = layer && layer._leaflet_id != null ? String(layer._leaflet_id) : null; } catch(e) { targetId = null; }
+  var nodes = pane.querySelectorAll('.popup-connector-line');
+  nodes.forEach(function(node){
+    if (!targetId || node.getAttribute('data-layer-id') === targetId) node.remove();
+  });
+}
+
+function popupAnchorPointForMarker(box, markerPt) {
+  var inset = 24;
+  if (markerPt.x < box.x1) return { x: box.x1, y: Math.max(box.y1 + inset, Math.min(box.y2 - inset, markerPt.y)) };
+  if (markerPt.x > box.x2) return { x: box.x2, y: Math.max(box.y1 + inset, Math.min(box.y2 - inset, markerPt.y)) };
+  if (markerPt.y < box.y1) return { x: Math.max(box.x1 + inset, Math.min(box.x2 - inset, markerPt.x)), y: box.y1 };
+  if (markerPt.y > box.y2) return { x: Math.max(box.x1 + inset, Math.min(box.x2 - inset, markerPt.x)), y: box.y2 };
+  var dLeft = Math.abs(markerPt.x - box.x1), dRight = Math.abs(box.x2 - markerPt.x), dTop = Math.abs(markerPt.y - box.y1), dBottom = Math.abs(box.y2 - markerPt.y);
+  var minD = Math.min(dLeft, dRight, dTop, dBottom);
+  if (minD === dLeft) return { x: box.x1, y: Math.max(box.y1 + inset, Math.min(box.y2 - inset, markerPt.y)) };
+  if (minD === dRight) return { x: box.x2, y: Math.max(box.y1 + inset, Math.min(box.y2 - inset, markerPt.y)) };
+  if (minD === dTop) return { x: Math.max(box.x1 + inset, Math.min(box.x2 - inset, markerPt.x)), y: box.y1 };
+  return { x: Math.max(box.x1 + inset, Math.min(box.x2 - inset, markerPt.x)), y: box.y2 };
+}
+
+function updatePopupConnector(layer) {
+  if (!layer || !map || !layer.getLatLng || !layer.getPopup) return;
+  var popup = null;
+  try { popup = layer.getPopup(); } catch(e) { popup = null; }
+  if (!popup) return;
+  var popupEl = null;
+  try { popupEl = popup.getElement ? popup.getElement() : null; } catch(e1) { popupEl = null; }
+  if (!popupEl) return;
+  var pane = ensurePopupConnectorPane();
+  if (!pane) return;
+  var layerId = null;
+  try { layerId = layer._leaflet_id != null ? String(layer._leaflet_id) : null; } catch(e2) { layerId = null; }
+  clearPopupConnector(layer);
+
+  var mapRect = null, popRect = null;
+  try { mapRect = map.getContainer().getBoundingClientRect(); popRect = popupEl.getBoundingClientRect(); } catch(e3) { mapRect = null; popRect = null; }
+  if (!mapRect || !popRect) return;
+
+  var box = { x1: popRect.left - mapRect.left, y1: popRect.top - mapRect.top, x2: popRect.right - mapRect.left, y2: popRect.bottom - mapRect.top };
+  var markerPt = map.latLngToContainerPoint(layer.getLatLng());
+  var anchor = popupAnchorPointForMarker(box, markerPt);
+
+  var dx = anchor.x - markerPt.x;
+  var dy = anchor.y - markerPt.y;
+  var len = Math.sqrt(dx * dx + dy * dy);
+  if (!isFinite(len) || len < 8) return;
+
+  var trim = 22;
+  var ux = dx / len, uy = dy / len;
+  var startX = markerPt.x + ux * trim;
+  var startY = markerPt.y + uy * trim;
+  var finalDx = anchor.x - startX;
+  var finalDy = anchor.y - startY;
+  var finalLen = Math.sqrt(finalDx * finalDx + finalDy * finalDy);
+  if (!isFinite(finalLen) || finalLen < 10) return;
+  var angle = Math.atan2(finalDy, finalDx) * 180 / Math.PI;
+
+  var line = document.createElement('div');
+  line.className = 'popup-connector-line';
+  if (layerId) line.setAttribute('data-layer-id', layerId);
+  line.style.left = startX + 'px';
+  line.style.top = startY + 'px';
+  line.style.width = finalLen + 'px';
+  line.style.transform = 'rotate(' + angle + 'deg)';
+  pane.appendChild(line);
+}
+
+function refreshOpenPopupConnector() {
+  if (!map || !baseGeoJsonLayer) return;
+  try {
+    baseGeoJsonLayer.eachLayer(function(layer){
+      if (!layer || !layer.isPopupOpen || !layer.getPopup) return;
+      if (layer.isPopupOpen()) updatePopupConnector(layer);
+    });
+  } catch(e) {}
+}
+
+function applySmartPopupPlacement(layer) {
+  if (!layer || !map || !layer.getLatLng || !layer.getPopup) return;
+  var popup = null;
+  try { popup = layer.getPopup(); } catch(e) { popup = null; }
+  if (!popup) return;
+
+  var pt = map.latLngToContainerPoint(layer.getLatLng());
+  var mapSize = null;
+  try { mapSize = map.getSize(); } catch(e0) { mapSize = null; }
+
+  var popupEl = null;
+  try { popupEl = popup.getElement ? popup.getElement() : null; } catch(e1) { popupEl = null; }
+  var width = popupEl && popupEl.offsetWidth ? popupEl.offsetWidth : 264;
+  var height = popupEl && popupEl.offsetHeight ? popupEl.offsetHeight : 138;
+
+  var markerObstacles = [];
+  try {
+    baseGeoJsonLayer && baseGeoJsonLayer.eachLayer(function(other){
+      if (!other || other === layer || !other.getLatLng) return;
+      var opt = map.latLngToContainerPoint(other.getLatLng());
+      markerObstacles.push(storyMarkerBoxForLayer(other, opt));
+    });
+  } catch(e2) {}
+
+  var labelObstacles = [];
+  try {
+    baseGeoJsonLayer && baseGeoJsonLayer.eachLayer(function(other){
+      if (!other || !other.getTooltip) return;
+      var tip = other.getTooltip();
+      if (!tip) return;
+      var tel = tip.getElement ? tip.getElement() : null;
+      if (!tel || !tel.offsetWidth || !tel.offsetHeight || !other.getLatLng) return;
+      var opt = map.latLngToContainerPoint(other.getLatLng());
+      var box = storyTooltipBoxForCandidate(opt, tel.offsetWidth, tel.offsetHeight, tip.options.direction || 'right', tip.options.offset || L.point(0,0));
+      labelObstacles.push(box);
+    });
+  } catch(e3) {}
+
+  var ordered = [];
+  try {
+    baseGeoJsonLayer && baseGeoJsonLayer.eachLayer(function(other){
+      if (other && other.getLatLng) ordered.push(other);
+    });
+  } catch(e4) {}
+  ordered.sort(function(a, b){
+    var auid = (a && a.feature && a.feature.properties && a.feature.properties.uid != null) ? String(a.feature.properties.uid) : '';
+    var buid = (b && b.feature && b.feature.properties && b.feature.properties.uid != null) ? String(b.feature.properties.uid) : '';
+    var ai = (storyIndexByUid && storyIndexByUid.hasOwnProperty(auid)) ? storyIndexByUid[auid] : 9999;
+    var bi = (storyIndexByUid && storyIndexByUid.hasOwnProperty(buid)) ? storyIndexByUid[buid] : 9999;
+    return ai - bi;
+  });
+  var lineSegments = [];
+  for (var s = 0; s < ordered.length - 1; s++) {
+    var pa = ordered[s] && ordered[s].getLatLng ? map.latLngToContainerPoint(ordered[s].getLatLng()) : null;
+    var pb = ordered[s+1] && ordered[s+1].getLatLng ? map.latLngToContainerPoint(ordered[s+1].getLatLng()) : null;
+    if (!pa || !pb) continue;
+    var dx = pb.x - pa.x, dy = pb.y - pa.y;
+    if ((dx*dx + dy*dy) < 4) continue;
+    lineSegments.push({ a: pa, b: pb });
+  }
+
+  var clusterCenter = null;
+  if (ordered.length) {
+    var sx = 0, sy = 0, sn = 0;
+    for (var ci = 0; ci < ordered.length; ci++) {
+      if (!ordered[ci] || !ordered[ci].getLatLng) continue;
+      var cpt = map.latLngToContainerPoint(ordered[ci].getLatLng());
+      if (!cpt) continue;
+      sx += cpt.x; sy += cpt.y; sn++;
+    }
+    if (sn) clusterCenter = { x: sx / sn, y: sy / sn };
+  }
+
+  var candidates = storyPopupCandidateOffsets(width, height, pt, clusterCenter);
+  var best = null;
+  candidates.forEach(function(candidate){
+    var box = storyPopupBoxForCandidate(pt, width, height, candidate.offset);
+    var viewportPenalty = storyViewportPenalty(box, mapSize, 16) * 180;
+    var overlapMarkers = 0;
+    var overlapLabels = 0;
+    var overlapMarkerArea = 0;
+    var overlapLabelArea = 0;
+    for (var i = 0; i < markerObstacles.length; i++) {
+      var a1 = storyBoxIntersectionArea(box, markerObstacles[i], 22, 22);
+      if (a1 > 0) { overlapMarkers++; overlapMarkerArea += a1; }
+    }
+    for (var j = 0; j < labelObstacles.length; j++) {
+      var a2 = storyBoxIntersectionArea(box, labelObstacles[j], 22, 18);
+      if (a2 > 0) { overlapLabels++; overlapLabelArea += a2; }
+    }
+    var linePenalty = storyLabelLinePenalty(box, lineSegments);
+    var dist = Math.sqrt(Math.pow(((box.x1 + box.x2) / 2) - pt.x, 2) + Math.pow(((box.y1 + box.y2) / 2) - pt.y, 2));
+    var distancePenalty = Math.max(0, dist - 156) * 9;
+    var ownLabelPenalty = 0;
+    try {
+      var tipOwn = layer.getTooltip ? layer.getTooltip() : null;
+      var telOwn = tipOwn && tipOwn.getElement ? tipOwn.getElement() : null;
+      if (telOwn && telOwn.offsetWidth && telOwn.offsetHeight) {
+        var ownBox = storyTooltipBoxForCandidate(pt, telOwn.offsetWidth, telOwn.offsetHeight, tipOwn.options.direction || 'right', tipOwn.options.offset || L.point(0,0));
+        var ownArea = storyBoxIntersectionArea(box, ownBox, 26, 24);
+        if (ownArea > 0) ownLabelPenalty = 56000 + ownArea * 4;
+      }
+    } catch(eOwn) {}
+    var markerPenalty = overlapMarkers * 24000 + overlapMarkerArea * 6;
+    var labelPenalty = overlapLabels * 30000 + overlapLabelArea * 7;
+    candidate.totalPenalty = viewportPenalty + markerPenalty + labelPenalty + linePenalty * 12000 + ownLabelPenalty + distancePenalty + candidate.score;
+    candidate.box = box;
+    if (!best || candidate.totalPenalty < best.totalPenalty) best = candidate;
+  });
+
+  if (!best) return;
+  try {
+    popup.options.offset = best.offset;
+    popup.update();
+    setTimeout(function(){
+      try {
+        var el = popup.getElement ? popup.getElement() : null;
+        if (el) {
+          el.classList.remove('popup-dir-right','popup-dir-left','popup-dir-top','popup-dir-bottom');
+          el.classList.add('popup-dir-' + best.direction);
+        }
+      } catch(eDir) {}
+      try { updatePopupConnector(layer); } catch(e6) {}
+    }, 0);
+  } catch(e5) {}
+}
+
+function bindStoryPhaseLabel(feature, layer) {
+  if (!selectedSiteName || !feature || !layer) return;
+  var p = (feature.properties || {});
+  var years = '';
+  try { years = yearLabelForFeature(p); } catch(e) { years = ''; }
+  if (!years) return;
+
+  var uid = (p && (p.uid !== undefined) && p.uid !== null) ? String(p.uid) : null;
+  var seq = (uid && storyIndexByUid && storyIndexByUid.hasOwnProperty(uid)) ? (storyIndexByUid[uid] + 1) : null;
+  var label = seq
+    ? ('<span class="phase-label__seq">' + seq + '</span><span class="phase-label__years">' + years + '</span>')
+    : ('<span class="phase-label__years">' + years + '</span>');
+
+  try {
+    layer.bindTooltip(label, {
+      permanent: true,
+      direction: 'right',
+      opacity: 1,
+      offset: storyTooltipBaseOffset('right'),
+      className: 'phase-label phase-label--anchored'
+    });
+  } catch(e) {}
+}
+
+// Angle (deg) from A to B measured in screen space.
+// Using projected points keeps arrows aligned with the rendered segment,
+// even when map projection makes geographic bearings look slightly off.
+function screenAngleDeg(a, b) {
+  if (!a || !b || !map || !map.latLngToLayerPoint) return 0;
+  var pa = map.latLngToLayerPoint(a);
+  var pb = map.latLngToLayerPoint(b);
+  var dx = (pb.x - pa.x);
+  var dy = (pb.y - pa.y);
+  return Math.atan2(dy, dx) * 180 / Math.PI;
+}
+
+function interpolateLatLng(a, b, t) {
+  return L.latLng(
+    a.lat + (b.lat - a.lat) * t,
+    a.lng + (b.lng - a.lng) * t
+  );
+}
+
+function renderStoryMovement() {
+  clearStoryMovementLayer();
+  if (!selectedSiteName || !map) return;
+  if (!Array.isArray(storyPathLatLngs) || storyPathLatLngs.length < 2) return;
+
+  storyMovementLayer = L.layerGroup();
+
+  // Animated dashed line to suggest movement
+  var line = L.polyline(storyPathLatLngs, {
+    color: '#111',
+    weight: 2,
+    opacity: 0.55,
+    dashArray: '6 10',
+    lineCap: 'round',
+    className: 'movement-line'
+  });
+  storyMovementLayer.addLayer(line);
+
+  // Three direction arrows per segment, spaced away from the endpoints.
+  var arrowFractions = [0.24, 0.50, 0.76];
+  var arrowSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + '<path d="M4 12h10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>'
+    + '<path d="M12 6.8L20 12l-8 5.2z" fill="currentColor"></path>'
+    + '</svg>';
+
+  for (var i = 0; i < storyPathLatLngs.length - 1; i++) {
+    var a = storyPathLatLngs[i], b = storyPathLatLngs[i+1];
+    var ang = screenAngleDeg(a, b);
+
+    for (var j = 0; j < arrowFractions.length; j++) {
+      var ll = interpolateLatLng(a, b, arrowFractions[j]);
+      var icon = L.divIcon({
+        className: 'movement-arrow-icon',
+        html: '<div class="move-arrow" style="transform: rotate(' + ang + 'deg)">' + arrowSvg + '</div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+      storyMovementLayer.addLayer(L.marker(ll, { icon: icon, interactive: false, keyboard: false }));
+    }
+  }
+
+  storyMovementLayer.addTo(map);
+}
+
+// Highlight the phase active at the current time (bigger + darker outline).
+function updateStoryHighlight() {
+  if (!selectedSiteName || !baseGeoJsonLayer || !map || !map.timeDimension) return;
+  var t = map.timeDimension.getCurrentTime();
+
+  baseGeoJsonLayer.eachLayer(function(layer){
+    if (!layer || !layer.feature || !layer.feature.properties) return;
+    var f = layer.feature;
+    var p = f.properties || {};
+    var active = false;
+    try { active = isFeatureActiveAtTime(f, t); } catch(e) { active = false; }
+
+    // Comunità rings (if selected) + active ring
+    var present = [];
+    try {
+      for (var si = 0; si < (selectedAffiliationsLower || []).length; si++) {
+        var ksel = selectedAffiliationsLower[si];
+        if (featureHasSelectedAff(p, ksel)) present.push(ksel);
+      }
+    } catch(e2) {}
+
+    var rings = present.length ? ringsCssForSelectedKeys(present) : '';
+    var combined = rings || '';
+
+    var size = active ? 34 : 26;
+    try { layer.setIcon(makeStoryIconForProperties(p, size, combined)); } catch(e3) {}
+    try { layer.setOpacity(active ? 1 : 0.55); } catch(e4) {}
+  });
+}
+
+
+// Precompute time bounds for fast filtering in the sidebar
+try {
+  (sitesGeojson.features || []).forEach(function(f){
+    var p = f.properties || {};
+    p._t0 = Date.parse(String(p.start_date || '').trim());
+    p._t1 = Date.parse(String(p.end_date || '').trim());
+  });
+} catch(e) {}
+
+function rebuildOverlaysAndSearch() {
+  // Preserve whether the layer is currently visible
+  var wasVisible = map.hasLayer(timeSitesLayer);
+
+  // Preserve whether the player was running
+  var wasPlaying = false;
+  try { wasPlaying = !!(map && map._tdPlayer && map._tdPlayer._playing); } catch(e) {}
+
+  // Stop player while we swap layers (prevents TimeDimension desync)
+  try { if (map && map._tdPlayer && typeof map._tdPlayer.stop === 'function') map._tdPlayer.stop(); } catch(e) {}
+
+  // Remove old layer/control/search safely
+  try { if (layerControl) map.removeControl(layerControl); } catch(e) {}
+  try { if (searchControl) map.removeControl(searchControl); } catch(e) {}
+  try { if (map.hasLayer(timeSitesLayer)) map.removeLayer(timeSitesLayer); } catch(e) {}
+
+  // Rebuild layers using current activeCategoriesLower + activeAffiliationsLower
+  var layersNew = buildLayers(activeCategoriesLower, activeAffiliationsLower);
+  baseGeoJsonLayer = layersNew.base;
+  timeSitesLayer = layersNew.timed;
+
+  // --- Update the TimeDimension available times so the slider range follows filters
+  // This makes the time slider interact with Categoria + Comunità by shrinking/expanding
+  // the available year range to the currently selected subset.
+  try {
+    if (map && map.timeDimension) {
+      var years = [];
+      var minY = null, maxY = null;
+      (sitesGeojson.features || []).forEach(function(f){
+        var p = (f && f.properties) ? f.properties : {};
+        // In story mode keep global range (narrative traversal)
+        if (selectedSiteName) return;
+        if (!passesActiveFilters(p)) return;
+        var sy = Number(p.start_year);
+        var ey = Number(p.end_year);
+        if (isNaN(sy) || isNaN(ey)) return;
+        minY = (minY === null) ? sy : Math.min(minY, sy);
+        maxY = (maxY === null) ? ey : Math.max(maxY, ey);
+      });
+
+      // Fallback to global bounds if filters yield none
+      if (minY === null || maxY === null) {
+        (sitesGeojson.features || []).forEach(function(f){
+          var p = (f && f.properties) ? f.properties : {};
+          var sy = Number(p.start_year);
+          var ey = Number(p.end_year);
+          if (isNaN(sy) || isNaN(ey)) return;
+          minY = (minY === null) ? sy : Math.min(minY, sy);
+          maxY = (maxY === null) ? ey : Math.max(maxY, ey);
+        });
+      }
+
+      if (minY !== null && maxY !== null) {
+        for (var yy = minY; yy <= maxY; yy++) years.push(Date.UTC(yy, 0, 1));
+        map.timeDimension.setAvailableTimes(years, 'replace');
+      }
+    }
+  } catch(e) {}
+
+  // Layer selector removed
+  layerControl = null;
+
+  // Restore visibility
+  if (wasVisible) timeSitesLayer.addTo(map);
+
+  // Recreate search (binds to the rebuilt baseGeoJsonLayer)
+  searchControl = new L.Control.Search({
+    layer: baseGeoJsonLayer,
+    propertyName: 'sito',
+    marker: false,
+    moveToLocation: function(latlng, title, map) { map.setView(latlng, 15); },
+    textPlaceholder: 'Search for a place…'
+  });
+  // Search remains available in the right sidebar only.
+  // Do not add the Leaflet search button to the top-left map controls.
+
+  // Re-bind the search handler (defined below)
+  bindSearchAutoPopup();
+
+  // Force TimeDimension to re-render the current frame against the new layer
+  try {
+    if (map && map.timeDimension) {
+      var t = map.timeDimension.getCurrentTime();
+      map.timeDimension.setCurrentTime(t);
+    }
+  } catch(e) {}
+
+  // Update the sidebar list + restyle overlaps for the current time (after TD paints)
+  setTimeout(function(){
+    try { updateSidebarList(); } catch(e1) {}
+    try { if (selectedSiteName) { updateStoryHighlight(); renderStoryMovement(); layoutStoryPhaseLabels(); } } catch(e0) {}
+    try { updateOverlapStyles(); } catch(e2) {}
+    // Resume autoplay if it was running
+    try { if (wasPlaying && map && map._tdPlayer && typeof map._tdPlayer.start === 'function') map._tdPlayer.start(); } catch(e3) {}
+  }, 0);
+}
+
+      // Ensure the first frame is rendered immediately (otherwise markers can look "faded"
+      // until the first timeload event is fired).
+      try {
+        var t0init = Date.parse(String(startISO));
+        if (!isNaN(t0init) && map && map.timeDimension) {
+          map.timeDimension.setCurrentTime(t0init);
+        }
+      } catch(e) {}
+      setTimeout(function(){
+        try { updateSidebarList(); } catch(e) {}
+        try { updateOverlapStyles(); } catch(e) {}
+        try { if (selectedSiteName) layoutStoryPhaseLabels(); } catch(e) {}
+      }, 0);
+
+      
+
+// ---- UI: Categoria in sidebar + Comunità dropdown on map ----
+
+// Monochrome (B/W) symbolic SVG icons for categories.
+var CATEGORY_SVGS = {
+  'associazione': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14c2-1 3-3 5-3s3 2 5 3" /><path d="M5 12c1-2 2-3 4-3" /><path d="M19 12c-1-2-2-3-4-3" /><path d="M8 15l-2 2" /><path d="M16 15l2 2" /></svg>',
+  'comunitario': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M4.5 20c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M13.5 20c.3-2.3 2-3.7 4-3.7 1.8 0 3.2.9 3.8 3.7"/></svg>',
+  'educazione': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 11v5c0 1.5 3 3 5 3s5-1.5 5-3v-5"/><path d="M21 10v6"/></svg>',
+  'assistenza': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-9.5-9C.8 8.8 3 6 6 6c1.8 0 3.2 1 4 2 0.8-1 2.2-2 4-2 3 0 5.2 2.8 3.5 6-2.5 4.5-9.5 9-9.5 9z"/></svg>',
+  'religioso': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.6 4.5L20 8l-3.8 3.2L17 17l-5-2.4L7 17l.8-5.8L4 8l5.4-.5L12 3z"/></svg>',
+  'altro': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.2"/></svg>',
+  'all': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>'
+};
+
+function catIcon(catName) {
+  var raw = (catName || '').toString().trim().toLowerCase();
+  var key = raw;
+  if (raw === 'associazioni' || raw === 'association' || raw === 'associations' || raw === 'associazione') key = 'associazione';
+  else if (raw === 'scuola' || raw === 'scuole' || raw === 'school' || raw === 'schools' || raw === 'education' || raw === 'educazione' || raw.indexOf('scuol') >= 0 || raw.indexOf('school') >= 0 || raw.indexOf('educat') >= 0 || raw.indexOf('educaz') >= 0) key = 'educazione';
+  else if (raw === 'welfare institution' || raw === 'welfare institutions' || raw === 'organizzazione assistenziale' || raw === 'organizzazioni assistenziali' || raw.indexOf('assistenz') >= 0 || raw.indexOf('welfare') >= 0) key = 'assistenza';
+  else if (raw === 'religious institution' || raw === 'religious institutions' || raw === 'istituzione religiosa' || raw === 'istituzioni religiose' || raw.indexOf('religios') >= 0) key = 'religioso';
+  else if (raw.indexOf('altro') === 0 || raw.indexOf('other') === 0 || raw.indexOf('non classificato') >= 0) key = 'altro';
+  return (CATEGORY_SVGS && CATEGORY_SVGS[key]) ? CATEGORY_SVGS[key] : CATEGORY_SVGS['altro'];
+}
+
+// ---- Sidebar controls: search only ----
+var sidebarControlsMount = document.getElementById('sidebarCategoryFilters');
+var placeSearchInputEl = null;
+var placeSearchDatalistEl = null;
+var placeSearchTermLower = ''; // free-text search on place name (sidebar only)
+var lastAutoSearchSelectionKey = '';
+
+function buildSidebarControls() {
+  if (!sidebarControlsMount) return;
+
+  sidebarControlsMount.innerHTML = '';
+
+  // --- Search (with datalist autocomplete) ---
+  var searchWrap = document.createElement('div');
+  searchWrap.className = 'sidebar-search';
+  searchWrap.innerHTML =
+    '<span class="search-icon" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.6-3.6"></path></svg>' +
+    '</span>' +
+    '<input id="placeSearch" type="search" placeholder="Search for a place…" list="placeSearchList" autocomplete="off" />' +
+    '<datalist id="placeSearchList"></datalist>';
+
+  sidebarControlsMount.appendChild(searchWrap);
+
+  placeSearchInputEl = searchWrap.querySelector('#placeSearch');
+  placeSearchDatalistEl = searchWrap.querySelector('#placeSearchList');
+
+  // Populate datalist with all unique place names (dataset index)
+  try {
+    if (placeSearchDatalistEl) {
+      var uniq = {};
+      (sitesGeojson.features || []).forEach(function(f){
+        var p = (f && f.properties) ? f.properties : {};
+        var nm = String(p.sito || '').trim();
+        if (!nm) return;
+        uniq[nm.toLowerCase()] = nm;
+      });
+      var names = Object.keys(uniq).map(function(k){ return uniq[k]; });
+      names.sort(function(a,b){ return a.localeCompare(b, 'it'); });
+      placeSearchDatalistEl.innerHTML = '';
+      names.forEach(function(nm){
+        var opt = document.createElement('option');
+        opt.value = nm;
+        placeSearchDatalistEl.appendChild(opt);
+      });
+    }
+  } catch(e) {}
+
+  function onSearchChange() {
+    var v = placeSearchInputEl ? String(placeSearchInputEl.value || '') : '';
+    placeSearchTermLower = v.trim().toLowerCase();
+    try { updateSidebarList(); } catch(e) {}
+    try { autoActivateSidebarSearch(false); } catch(e2) {}
+  }
+
+  if (placeSearchInputEl) {
+    placeSearchInputEl.addEventListener('input', onSearchChange);
+    placeSearchInputEl.addEventListener('change', onSearchChange);
+    // Safari fires 'search' when the clear (x) is used
+    placeSearchInputEl.addEventListener('search', onSearchChange);
+    placeSearchInputEl.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter') {
+        try { autoActivateSidebarSearch(true); } catch(e) {}
+      }
+    });
+  }
+
+}
+
+buildSidebarControls();
+
+function getSidebarSearchCandidates() {
+  var term = String(placeSearchTermLower || '').trim().toLowerCase();
+  if (!term) return [];
+
+  var seen = {};
+  var out = [];
+
+  (sitesGeojson.features || []).forEach(function(f){
+    var p = (f && f.properties) ? f.properties : {};
+    var nm = String(p.sito || '').trim();
+    if (!nm) return;
+    if (!passesActiveFilters(p)) return;
+    if (nm.toLowerCase().indexOf(term) === -1) return;
+
+    var key = normSiteName(nm);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push({
+      key: key,
+      name: nm,
+      uid: String(p.uid || ''),
+      feature: f,
+      exact: (nm.toLowerCase() === term)
+    });
+  });
+
+  out.sort(function(a,b){
+    if (a.exact !== b.exact) return a.exact ? -1 : 1;
+    return a.name.localeCompare(b.name, 'it');
+  });
+  return out;
+}
+
+function autoActivateSidebarSearch(forceFirst) {
+  var term = String(placeSearchTermLower || '').trim().toLowerCase();
+  if (!term) {
+    lastAutoSearchSelectionKey = '';
+    return;
+  }
+
+  var candidates = getSidebarSearchCandidates();
+  if (!candidates.length) return;
+
+  var target = null;
+  for (var i = 0; i < candidates.length; i++) {
+    if (candidates[i].exact) { target = candidates[i]; break; }
+  }
+  if (!target && candidates.length === 1) target = candidates[0];
+  if (!target && forceFirst) target = candidates[0];
+  if (!target) return;
+
+  var selectionKey = term + '::' + normSiteName(target.name) + '::' + String(target.uid || '');
+  if (selectionKey === lastAutoSearchSelectionKey) return;
+  lastAutoSearchSelectionKey = selectionKey;
+
+  try {
+    selectedCategoryColor = catColorFor((target.feature && target.feature.properties) ? target.feature.properties : {});
+  } catch(e) { selectedCategoryColor = null; }
+  selectPlaceByName(target.name, target.uid);
+}
+
+
+// ---- Comunità dropdown (highlight-only) ----
+var CommunityDropdownControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd: function() {
+    var container = L.DomUtil.create('div', 'leaflet-bar community-control');
+
+    // Toggle button
+    var btn = L.DomUtil.create('button', 'community-toggle', container);
+    btn.type = 'button';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<span class="community-toggle-label">Institution established by</span><span class="community-toggle-count" id="communityCount"></span><span class="community-chevron" aria-hidden="true">▾</span>';
+
+    // Panel (dropdown body)
+    var panel = L.DomUtil.create('div', 'community-panel', container);
+    panel.setAttribute('role', 'menu');
+    panel.hidden = true;
+
+    
+    // Prevent map interactions from hijacking clicks inside the dropdown.
+    panel.addEventListener('mousedown', function(e){ try { L.DomEvent.stop(e); } catch(err){} });
+    panel.addEventListener('click', function(e){ try { L.DomEvent.stop(e); } catch(err){} });
+function updateToggleCount() {
+      var el = container.querySelector('#communityCount');
+      if (!el) return;
+      if (!selectedAffiliationsLower || selectedAffiliationsLower.length === 0) {
+        el.textContent = '';
+      } else {
+        el.textContent = ' (' + selectedAffiliationsLower.length + ')';
+      }
+    }
+
+    function closePanel() {
+      panel.hidden = true;
+      container.classList.remove('is-open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+    function openPanel() {
+      panel.hidden = false;
+      container.classList.add('is-open');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    function togglePanel(e) {
+      try { L.DomEvent.stop(e); } catch(err) {}
+      if (e && e.preventDefault) e.preventDefault();
+      if (panel.hidden) openPanel();
+      else closePanel();
+    }
+
+    try { L.DomEvent.disableClickPropagation(container); } catch(err) {}
+    try { L.DomEvent.disableScrollPropagation(container); } catch(err) {}
+
+    // Important on iPad/Safari: keep a single activation path for the dropdown
+    // and for its buttons, otherwise taps may be swallowed or require multiple tries.
+    if (window.PointerEvent) {
+      btn.addEventListener('pointerdown', togglePanel, { passive: false });
+    } else {
+      btn.addEventListener('touchstart', togglePanel, { passive: false });
+      btn.addEventListener('click', togglePanel);
+    }
+
+    // Close dropdown when tapping outside, but ignore the same interaction that
+    // opened/toggled the control.
+    var lastControlInteractionTs = 0;
+    function markControlInteraction(){ lastControlInteractionTs = Date.now(); }
+    container.addEventListener('pointerdown', markControlInteraction, true);
+    container.addEventListener('touchstart', markControlInteraction, true);
+    container.addEventListener('mousedown', markControlInteraction, true);
+    function onDocPointerDown(ev){
+      try {
+        if ((Date.now() - lastControlInteractionTs) < 250) return;
+        if (!container.contains(ev.target)) closePanel();
+      } catch(e){}
+    }
+    document.addEventListener('pointerdown', onDocPointerDown, true);
+    document.addEventListener('mousedown', onDocPointerDown, true);
+    document.addEventListener('touchstart', onDocPointerDown, true);
+
+    function makeAffButton(label, keyLower, isClear) {
+      var b = L.DomUtil.create('button', 'aff-btn', panel);
+      b.type = 'button';
+      b.setAttribute('data-aff', isClear ? '__clear__' : keyLower);
+      b.setAttribute('aria-pressed', 'false');
+
+      var strokeCol = isClear ? '#111' : (AFF_OUTLINE_COLORS[keyLower] || '#111');
+      b.innerHTML =
+        (isClear ? '' : ('<span class="aff-swatch" style="--stroke:' + strokeCol + '"></span>')) +
+        '<span class="aff-label">' + label + '</span>';
+
+      function onAffActivate(e){
+        try { L.DomEvent.stop(e); } catch(err) {}
+        if (e && e.preventDefault) e.preventDefault();
+        markControlInteraction();
+
+        if (isClear) {
+          selectedAffiliationsLower = [];
+        } else {
+          var idx = selectedAffiliationsLower.indexOf(keyLower);
+          if (idx >= 0) selectedAffiliationsLower.splice(idx, 1);
+          else selectedAffiliationsLower.push(keyLower);
+          // stable ring order
+          try {
+            selectedAffiliationsLower.sort(function(a,b){ return affiliationsLowerAll.indexOf(a) - affiliationsLowerAll.indexOf(b); });
+          } catch(eSort) {}
+        }
+
+        updateAffButtons();
+        updateToggleCount();
+        try { clearSpiderfy(); } catch(e1) {}
+        try { updateOverlapStyles(); } catch(e2) {}
+      }
+      if (window.PointerEvent) {
+        b.addEventListener('pointerdown', onAffActivate, { passive: false });
+      } else {
+        b.addEventListener('touchstart', onAffActivate, { passive: false });
+        b.addEventListener('click', onAffActivate);
+      }
+
+      return b;
+    }
+
+    var affButtons = [];
+    function updateAffButtons() {
+      affButtons.forEach(function(b){
+        var k = b.getAttribute('data-aff');
+        var active = false;
+        if (k === '__clear__') active = (selectedAffiliationsLower.length === 0);
+        else active = (selectedAffiliationsLower.indexOf(k) !== -1);
+
+        if (active) b.classList.add('is-active');
+        else b.classList.remove('is-active');
+
+        try { b.setAttribute('aria-pressed', active ? 'true' : 'false'); } catch(e) {}
+      });
+    }
+
+    // Build dropdown body
+    affButtons.push(makeAffButton('Clear selection', null, true));
+    for (var k = 0; k < affiliations.length; k++) {
+      var kk = affiliationsLowerAll[k];
+      affButtons.push(makeAffButton(affiliations[k], kk, false));
+    }
+    updateAffButtons();
+    updateToggleCount();
+
+    L.DomEvent.disableClickPropagation(container);
+    L.DomEvent.disableScrollPropagation(container);
+
+    return container;
+  }
+});
+
+
+
+map.addControl(new CommunityDropdownControl());
+
+
+function mountTopRightTimeYear() {
+  // Place only the time slider above the community dropdown, aligned to the same right edge.
+  var topRight = document.querySelector('.leaflet-top.leaflet-right');
+  if (!topRight) return;
+
+  var timeCtrl = topRight.querySelector('.leaflet-control-timecontrol');
+  timeCtrl = timeCtrl ? timeCtrl.closest('.leaflet-control') : null;
+  if (!timeCtrl) return;
+
+  var yearBox = topRight.querySelector('.yearbox');
+  var yearCtrl = yearBox ? yearBox.closest('.leaflet-control') : null;
+  if (yearCtrl && yearCtrl.parentNode) {
+    yearCtrl.parentNode.removeChild(yearCtrl);
+  }
+
+  var header = topRight.querySelector('.topright-timeyear');
+  if (!header) {
+    header = document.createElement('div');
+    header.className = 'leaflet-control topright-timeyear';
+  }
+
+  if (timeCtrl.parentElement !== header) header.appendChild(timeCtrl);
+
+  if (header.parentElement !== topRight) {
+    topRight.insertBefore(header, topRight.firstChild);
+  } else if (topRight.firstChild !== header) {
+    topRight.insertBefore(header, topRight.firstChild);
+  }
+}
+
+// Run once the controls exist in DOM.
+setTimeout(mountTopRightTimeYear, 0);
+window.addEventListener('resize', function() { setTimeout(mountTopRightTimeYear, 0); });
+
+
+function mountTopRightLangCommunity() {
+  var topRight = document.querySelector('.leaflet-top.leaflet-right');
+  if (!topRight) return;
+
+  var commEl = topRight.querySelector('.community-control');
+  if (!commEl) return;
+
+  var commCtrl = commEl.closest('.leaflet-control') || commEl;
+
+  var row = topRight.querySelector('.topright-lang-community');
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'leaflet-control topright-lang-community';
+  }
+
+  row.innerHTML = '';
+  row.appendChild(commCtrl);
+
+  var header = topRight.querySelector('.topright-timeyear');
+  if (row.parentElement !== topRight) {
+    if (header && header.nextSibling) topRight.insertBefore(row, header.nextSibling);
+    else if (header) topRight.appendChild(row);
+    else topRight.insertBefore(row, topRight.firstChild);
+  } else {
+    var desiredRef = header ? header.nextSibling : topRight.firstChild;
+    if (desiredRef !== row) {
+      if (desiredRef) topRight.insertBefore(row, desiredRef);
+      else topRight.appendChild(row);
+    }
+  }
+}
+
+// Run once the controls exist in DOM.
+setTimeout(mountTopRightLangCommunity, 0);
+window.addEventListener('resize', function() { setTimeout(mountTopRightLangCommunity, 0); });
+
+
+// ---- Sidebar: list of ALL places, with inactive ones greyed out for the current year ----
+var sidebarYearEl = document.getElementById('sidebarYear');
+var sidebarTitleEl = document.getElementById('sidebarTitle');
+var sidebarCountEl = document.getElementById('sidebarCount');
+var placesListEl = document.getElementById('placesList');
+var btnClearSelection = document.getElementById('btnClearSelection');
+var placeInfoEl = document.getElementById('placeInfo');
+
+function getCurrentYear() {
+  var t = map && map.timeDimension ? map.timeDimension.getCurrentTime() : NaN;
+  if (isNaN(t)) return null;
+  return new Date(t).getFullYear();
+}
+
+function yearLabelForFeature(p) {
+  if (!p) return '';
+  var sy=String(p.start_year==null?'':p.start_year).trim(); var ey=String(p.end_year==null?'':p.end_year).trim(); if(!ey || ey.toLowerCase()==='null' || ey.toLowerCase()==='nan') return sy ? (sy + '–Today') : ''; return (sy===ey)? sy : (sy + '–' + ey);
+}
+
+function isFeatureActiveAtTime(f, t) {
+  var p = (f && f.properties) ? f.properties : {};
+  var t0 = p._t0;
+  var t1 = p._t1;
+  if (isNaN(t0) || isNaN(t1)) {
+    // fallback to year bounds
+    var y = new Date(t).getFullYear();
+    var ys = Number(p.start_year);
+    var ye = Number(p.end_year);
+    if (!isNaN(ys) && !isNaN(ye)) return (y >= ys && y <= ye);
+    return false;
+  }
+  return (t >= t0 && t <= t1);
+}
+
+function categoryIsActive(p) {
+  if (!p) return false;
+  if (!Array.isArray(activeCategoriesLower)) return true;
+  var craw = (p.category && p.category.toString().trim()) ? p.category : (p.categoria || '');
+  var c = craw.toString().trim().toLowerCase();
+  return activeCategoriesLower.indexOf(c) !== -1;
+}
+
+
+function affiliationIsActive(p) {
+  if (!p) return false;
+  if (!Array.isArray(activeAffiliationsLower)) return true;
+  var araw = (p.affiliazione || '').toString().trim();
+  var key = araw ? araw.toLowerCase() : '(nessuna)';
+  // normalise "(nessuna)" sentinel
+  if (!araw) key = '(nessuna)';
+  return activeAffiliationsLower.indexOf(key) !== -1;
+}
+
+function passesActiveFilters(p) {
+  // Comunità selection must NOT filter the dataset; it is used only for outline highlighting.
+  return categoryIsActive(p);
+}
+
+function catColorFor(p) {
+  return '#f17e5a';
+}
+
+function affKeysFor(p) {
+  var raw = (p && p.affiliazione != null) ? String(p.affiliazione) : '';
+  raw = raw.trim();
+  if (!raw) return ['(nessuna)'];
+  // Allow multiple affiliations in one cell (e.g., "Persiani; Libanesi")
+  var parts = raw.split(/[;,\/|\n]+/).map(function(s){ return String(s).trim(); }).filter(function(s){ return !!s; });
+  if (!parts.length) return ['(nessuna)'];
+  return parts.map(function(s){ return s.toLowerCase(); });
+}
+
+function affKeyFor(p) {
+  return affKeysFor(p)[0];
+}
+function affColorForKey(k) {
+  if (!k) return '#555';
+  var kk = String(k).trim().toLowerCase();
+  return (AFF_OUTLINE_COLORS && AFF_OUTLINE_COLORS[kk]) ? AFF_OUTLINE_COLORS[kk] : '#555';
+}
+
+function affColorFor(p) {
+  return affColorForKey(affKeyFor(p));
+}
+
+
+function hexToRgb(hex) {
+  if (!hex) return null;
+  var h = String(hex).replace('#','').trim();
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if (h.length !== 6) return null;
+  var n = parseInt(h, 16);
+  if (isNaN(n)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgbToHex(r,g,b){
+  function toHex(x){ var s = Math.max(0, Math.min(255, Math.round(x))).toString(16); return (s.length===1?'0':'')+s; }
+  return '#' + toHex(r) + toHex(g) + toHex(b);
+}
+
+// Darken a colour by factor in [0..1]
+function darken(hex, factor) {
+  var rgb = hexToRgb(hex);
+  if (!rgb) return hex || '#999';
+  var f = Math.max(0, Math.min(1, factor || 0));
+  return rgbToHex(rgb.r * (1 - f), rgb.g * (1 - f), rgb.b * (1 - f));
+}
+
+
+// --- Global palette for main chronology (single Greens palette) ---
+// Lighter end of the Greens palette: keep it visibly green (not "almost white")
+// Use a clearly visible light green (the previous one looked "transparent" on light basemaps)
+var PAL_LIGHT = '#74c476';
+var PAL_DARK  = '#006d2c';
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function mixHex(hexA, hexB, t) {
+  var A = hexToRgb(hexA), B = hexToRgb(hexB);
+  if (!A || !B) return hexA || '#999';
+  var tt = Math.max(0, Math.min(1, t));
+  return rgbToHex(lerp(A.r,B.r,tt), lerp(A.g,B.g,tt), lerp(A.b,B.b,tt));
+}
+
+
+// Build one or more outline "rings" (marker borders) using CSS box-shadow.
+// We keep the marker body untouched; rings are only shown when one or more Comunità are selected.
+function ringsCssForColors(colors) {
+  if (!colors || !colors.length) return '0 0 0 0 transparent';
+  var base = 3; // ring thickness
+  var gap  = 1; // spacing between rings
+  var out = [];
+  for (var i = 0; i < colors.length; i++) {
+    var w = base * (i + 1) + gap * i; // 3,7,11,...
+    out.push('0 0 0 ' + w + 'px ' + colors[i]);
+  }
+  return out.join(', ');
+}
+
+function ringsCssForSelectedKeys(presentKeysLower) {
+  if (!presentKeysLower || !presentKeysLower.length) return '0 0 0 0 transparent';
+  var cols = presentKeysLower.map(function(k){ return affColorForKey(k); });
+  return ringsCssForColors(cols);
+}
+
+function featureHasSelectedAff(p, keyLower) {
+  var keys = affKeysFor(p || {});
+  return keys.indexOf(keyLower) !== -1;
+}
+
+function makeCountIcon(count, color, size, rings) {
+  var sz = Math.max(12, Number(size) || 18);
+  var fs = Math.max(10, Math.round(sz * 0.55));
+  var cInt = Math.max(1, Math.min(6, Number(count) || 1));
+  var palette = {1:'#f17e5a',2:'#e55433',3:'#d83419',4:'#bc1600',5:'#9e0f00',6:'#720800'};
+  var col = palette[cInt] || '#f17e5a';
+  var ringsCss = (rings !== undefined && rings !== null && String(rings).trim() !== '') ? String(rings) : '0 0 0 0 transparent';
+  return L.divIcon({
+    className: 'count-marker-wrap count-' + cInt,
+    html: '<div class="count-marker count-' + cInt + '" style="--cm:' + col + ';--rings:' + ringsCss + ';--sz:' + sz + 'px;--fs:' + fs + 'px">' + (count||1) + '</div>',
+    iconSize: [sz, sz],
+    iconAnchor: [sz/2, sz/2]
+  });
+}
+
+// --- Spiderfy (cluster-like expansion) for stacked markers ---
+var spiderfyLayer = null;
+var spiderfyOriginKey = null;
+
+function ensureSpiderfyLayer() {
+  if (!spiderfyLayer) {
+    spiderfyLayer = L.layerGroup().addTo(map);
+    // Close spiderfy when user clicks elsewhere
+    try {
+      map.on('click', function(){ clearSpiderfy(); });
+      map.on('zoomstart', function(){ clearSpiderfy(); });
+      map.on('movestart', function(){ clearSpiderfy(); });
+      map.timeDimension && map.timeDimension.on('timeload', function(){ clearSpiderfy(); });
+    } catch(e) {}
+  }
+}
+
+function clearSpiderfy() {
+  if (!spiderfyLayer) return;
+  try { spiderfyLayer.clearLayers(); } catch(e) {}
+  spiderfyOriginKey = null;
+}
+
+// Icon-only marker for category glyphs (no coloured blob).
+// The glyph itself is slightly tinted; outlines are thicker for readability.
+function makeIconOnlyMarker(svgHtml, accentColor, sizePx, rings) {
+  var sz = Math.max(16, Number(sizePx) || 22);
+  var ringsCss = (rings !== undefined && rings !== null && String(rings).trim() !== '') ? String(rings) : '0 0 0 0 transparent';
+  var accent = accentColor || '#111';
+  return L.divIcon({
+    className: 'icon-only-marker-wrap',
+    html:
+      '<div class="icon-only-marker" style="--sz:' + sz + 'px;--rings:' + ringsCss + ';--accent:' + accent + '">' +
+        '<span class="icon-only-marker__icon" style="color:' + accent + '">' + (svgHtml || '') + '</span>' +
+      '</div>',
+    iconSize: [sz, sz],
+    iconAnchor: [sz/2, sz/2]
+  });
+}
+
+function makeCategoryIcon(categoryLabel, accentColor, sizePx, rings) {
+  return makeIconOnlyMarker(catIcon(categoryLabel), accentColor, sizePx, rings);
+}
+
+function makeStoryIconForProperties(p, sizePx, rings) {
+  var accent = catColorFor(p || {});
+  return makeIconOnlyMarker(catIcon(p.categoria || p.category || ''), accent, sizePx, rings);
+}
+
+function selectPlaceFromFeature(feature) {
+  if (!feature || !feature.properties) return;
+  var p = feature.properties || {};
+  try { selectedCategoryColor = catColorFor(p); } catch(e) { selectedCategoryColor = null; }
+  selectPlaceByName(p.sito, String(p.uid || ''));
+}
+
+function spiderfyStack(originLatLng, key, features) {
+  ensureSpiderfyLayer();
+  if (!features || features.length <= 1) return;
+
+  // Toggle behaviour: clicking the same stack closes it.
+  if (spiderfyOriginKey && spiderfyOriginKey === key) {
+    clearSpiderfy();
+    return;
+  }
+  clearSpiderfy();
+  spiderfyOriginKey = key;
+
+  var n = features.length;
+  var centerPt = map.latLngToLayerPoint(originLatLng);
+  var radiusPx = Math.max(18, Math.min(45, 14 + 6 * Math.sqrt(n)));
+
+  for (var i = 0; i < n; i++) {
+    var ang = (Math.PI * 2 * i) / n;
+    var pt = L.point(centerPt.x + radiusPx * Math.cos(ang), centerPt.y + radiusPx * Math.sin(ang));
+    var ll = map.layerPointToLatLng(pt);
+
+    var p = (features[i].properties || {});
+    var catKey = (p.categoria || '').toString().trim().toLowerCase();
+    var catCol = (CATEGORY_COLORS && CATEGORY_COLORS[catKey]) ? CATEGORY_COLORS[catKey] : '#666';
+
+    // Comunità outlines are opt-in: only when one or more communities are selected.
+    var present = [];
+    try {
+      for (var si = 0; si < selectedAffiliationsLower.length; si++) {
+        var ksel = selectedAffiliationsLower[si];
+        if (featureHasSelectedAff(p, ksel)) present.push(ksel);
+      }
+    } catch(e) {}
+    var rings = present.length ? ringsCssForSelectedKeys(present) : '';
+    var m = L.marker(ll, { icon: makeCategoryIcon((p.categoria || p.category || catKey || ''), catCol, 20, rings), riseOnHover: true });
+try { bindPopupHtml(features[i], m); } catch(e) {}
+
+    // Clicking one of the spiderfied points: open its popup.
+    // IMPORTANT: stop propagation so the map click handler doesn't immediately clear spiderfy.
+    m.on('click', (function(feature){
+      return function(e){
+        try {
+          if (e && e.originalEvent) {
+            L.DomEvent.stopPropagation(e.originalEvent);
+            L.DomEvent.preventDefault(e.originalEvent);
+          }
+          L.DomEvent.stop(e);
+        } catch(err) {}
+        try { this.openPopup(); } catch(err2) {}
+      };
+    })(features[i]));
+
+    spiderfyLayer.addLayer(m);
+  }
+}
+
+// In the general view (main chronology), dynamically emphasise stacks of points that share
+// the same coordinates at the current time:
+//   - SAME hue for all points
+//   - more points => darker + larger
+function updateOverlapStyles() {
+  if (!map || !map.timeDimension) return;
+  if (selectedSiteName) return; // story mode: keep fixed styling
+
+  var t = map.timeDimension.getCurrentTime();
+  var counts = {};
+  var groups = {};
+
+  function keyForLatLng(ll) {
+    return ll.lat.toFixed(6) + ',' + ll.lng.toFixed(6);
+  }
+
+  // Prefer the actually displayed geojson layer (TimeDimension's current layer)
+  // so styling always matches what the user sees.
+  var displayed = (timeSitesLayer && timeSitesLayer._currentLayer) ? timeSitesLayer._currentLayer : baseGeoJsonLayer;
+  if (!displayed) return;
+
+  // Pass 1: count active points per coordinate (and keep the layers grouped)
+  displayed.eachLayer(function(l){
+    if (!l || !l.feature || !l.feature.properties || !l.getLatLng) return;
+    var f = l.feature;
+    var p = f.properties || {};
+    if (!passesActiveFilters(p)) return;
+    if (!isFeatureActiveAtTime(f, t)) return;
+
+    var k = keyForLatLng(l.getLatLng());
+    counts[k] = (counts[k] || 0) + 1;
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(l);
+  });
+
+  // Determine scaling range
+  var maxCount = 1;
+  Object.keys(counts).forEach(function(k){ maxCount = Math.max(maxCount, counts[k] || 1); });
+  // Color palette (single Greens) defined globally: PAL_LIGHT -> PAL_DARK
+
+  // Pass 2: apply styles
+  // NOTE: points are Leaflet Markers (DivIcons) so we style with setIcon/setOpacity.
+  // We also make them behave like a cluster: for a stack, show ONE aggregate marker
+  // and hide the duplicates; clicking the aggregate "spiderfies" the stack.
+  displayed.eachLayer(function(l){
+    if (!l || !l.feature || !l.feature.properties || !l.getLatLng) return;
+    var f = l.feature;
+    var p = f.properties || {};
+    var activeNow = passesActiveFilters(p) && isFeatureActiveAtTime(f, t);
+    if (!activeNow) {
+      try { l.setOpacity(0); } catch(e) {}
+      return;
+    }
+
+    var k = keyForLatLng(l.getLatLng());
+    var c = counts[k] || 1;
+
+    // Determine if this layer is the "leader" of its coordinate group
+    var group = groups[k] || [l];
+    var leader = group[0] === l;
+
+    if (!leader) {
+      // Hide duplicates so we get a true single marker per coordinate
+      try { l.setOpacity(0); } catch(e) {}
+      try { if (l._icon) l._icon.style.pointerEvents = 'none'; } catch(e2) {}
+      return;
+    }
+
+    // Normalised intensity for colour (single Greens palette)
+    var tt = (maxCount <= 1) ? 0 : ((c - 1) / (maxCount - 1));
+    var col = mixHex(PAL_LIGHT, PAL_DARK, tt);
+
+    // Size scaling (visible)
+    var radius = 7 + 5 * Math.sqrt(Math.max(0, c - 1));
+    try {
+      // When count==1 we still want it clearly visible (verdino)
+      if (typeof l.setOpacity === "function") l.setOpacity(1);
+      if (l._icon) l._icon.style.pointerEvents = 'auto';
+      if (typeof l.setIcon === "function") {
+        // Comunità highlight: ONLY add a coloured outline to markers that include
+        // at least one feature of the selected affiliation at the current time/coordinate.
+        var present = [];
+        try {
+          for (var si = 0; si < (window.selectedAffiliationsLower || []).length; si++) {
+            var ksel = (window.selectedAffiliationsLower || [])[si];
+            var hasAff = false;
+            for (var gi = 0; gi < group.length; gi++) {
+              var fp = (group[gi] && group[gi].feature) ? (group[gi].feature.properties || {}) : {};
+              if (featureHasSelectedAff(fp, ksel)) { hasAff = true; break; }
+            }
+            if (hasAff) present.push(ksel);
+          }
+        } catch(eAff) {}
+        var rings = present.length ? ringsCssForSelectedKeys(present) : '';
+        l.setIcon(makeCountIcon(c, col, radius*2.2, rings));
+      }
+    } catch(e) {}
+
+
+    // If this marker represents a stack (>1), disable its own popup so click can spiderfy.
+    // When it becomes a single point again, restore the popup.
+    try {
+      if (c > 1) {
+        if (typeof l.getPopup === 'function' && l.getPopup()) l.unbindPopup();
+      } else {
+        if (typeof l.getPopup === 'function' && !l.getPopup()) bindPopupHtml(l.feature, l);
+      }
+    } catch(ePop) {}
+    // Store stack info on the leader marker so the click handler always has fresh data
+    try {
+      l._stackKey = k;
+      l._stackCount = c;
+      l._stackFeatures = group.map(function(x){ return x.feature; }).filter(Boolean);
+    } catch(e) {}
+
+    // Bind click: if stacked, spiderfy; if single, keep the usual behaviour.
+    if (!l._stackClickBound) {
+      l._stackClickBound = true;
+      l.on('click', function(e){
+        try { if (e) L.DomEvent.stop(e); } catch(err) {}
+        var ll = this.getLatLng ? this.getLatLng() : null;
+        if (!ll) return;
+        var kk = this._stackKey || keyForLatLng(ll);
+        var feats = this._stackFeatures || [];
+        var cc = this._stackCount || feats.length || 1;
+        if (cc > 1 && feats.length) {
+          // Spiderfy to individual category-coloured markers with popups
+          spiderfyStack(ll, kk, feats);
+        } else {
+          clearSpiderfy();
+          // Open popup + enter story mode
+          try { this.openPopup && this.openPopup(); } catch(err2) {}
+          try { this.feature && selectPlaceFromFeature(this.feature); } catch(err3) {}
+        }
+      });
+    }
+  });
+}
+
+
+var projectIntroText = 'Open a category to browse the places included in the dataset. Select a place to isolate it on the map and follow its locations over time, including moves, continuity and changes across the city. Use the timeline controls and the year display to move through the chronology, and use the community menu to highlight places connected to specific groups.';
+var _lastSidebarTapTs = 0;
+function bindSidebarTap(el, handler) {
+  if (!el || !handler) return;
+  el.addEventListener('pointerup', function(ev){
+    if (ev && ev.pointerType === 'mouse') return;
+    _lastSidebarTapTs = Date.now();
+    ev.preventDefault();
+    ev.stopPropagation();
+    handler(ev);
+  });
+  el.addEventListener('click', function(ev){
+    if (Date.now() - _lastSidebarTapTs < 450) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    handler(ev);
+  });
+}
+
+function updateSidebarList() {
+  if (!placesListEl || !map || !map.timeDimension) return;
+
+  var t = map.timeDimension.getCurrentTime();
+  var y = getCurrentYear();
+  if (sidebarYearEl) sidebarYearEl.textContent = (y !== null ? y : '—');
+
+  if (sidebarTitleEl) {
+    sidebarTitleEl.innerHTML = selectedSiteName
+      ? ('History: <span style="font-weight:700">' + String(selectedSiteName) + '</span> — <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>')
+      : ('Jewish Institutions in Milan<br>year <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>');
+    // Re-bind sidebarYearEl if we replaced the innerHTML
+    sidebarYearEl = document.getElementById('sidebarYear');
+  }
+
+  // STORY MODE: show the sequence of phases for the selected place (its changes over time)
+  if (selectedSiteName) {
+    var phases = (sitesGeojson.features || []).filter(function(f){
+      return normSiteName((f.properties||{}).sito) === normSiteName(selectedSiteName);
+    });
+    phases.sort(function(a,b){
+      return Number((a.properties||{}).start_year) - Number((b.properties||{}).start_year);
+    });
+
+    if (sidebarCountEl) sidebarCountEl.textContent = phases.length + ' ' + (phases.length === 1 ? 'address' : 'addresses');
+    placesListEl.innerHTML = '';
+
+    phases.forEach(function(f){
+      var p = f.properties || {};
+      var activeNow = isFeatureActiveAtTime(f, t);
+
+      var item = document.createElement('div');
+      item.className = 'place-item' + (activeNow ? '' : ' is-inactive');
+      item.setAttribute('role', 'button');
+      item.tabIndex = 0;
+
+      var name = document.createElement('div');
+      name.className = 'place-name';
+      name.textContent = (p.indirizzo ? String(p.indirizzo) : '—');
+
+      var meta = document.createElement('div');
+      meta.className = 'place-meta';
+
+      var left = document.createElement('div');
+      left.className = 'place-cat';
+
+      var dot = document.createElement('span');
+      dot.className = 'place-ico';
+      dot.innerHTML = catIcon((function(v){ v=String(v||''); if (v.toLowerCase()==='education' || v.toLowerCase()==='educazione') return 'school'; return v; })(p.categoria || p.category || ''));
+      dot.style.color = activeNow ? catColorFor(p) : '#9e9e9e';
+
+      var cat = document.createElement('span');
+      cat.textContent = (function(v){ v=String(v||''); if (v.toLowerCase()==='schools') return 'Education'; if (v.toLowerCase()==='scuole') return 'Educazione'; return v; })(p.categoria || p.category || '');
+
+      left.appendChild(dot);
+      left.appendChild(cat);
+
+      var yrs = document.createElement('div');
+      yrs.className = 'place-years';
+      yrs.textContent = yearLabelForFeature(p);
+
+      meta.appendChild(left);
+      meta.appendChild(yrs);
+
+      item.appendChild(name);
+      item.appendChild(meta);
+
+      function activatePhase(){
+        // Jump to this phase and open its popup
+        try { if (map._tdPlayer && map._tdPlayer.isPlaying && map._tdPlayer.isPlaying()) map._tdPlayer.stop(); } catch(err) {}
+        var t0 = Date.parse(String(p.start_date || '').trim());
+        if (!isNaN(t0)) map.timeDimension.setCurrentTime(t0);
+
+        try {
+          var targetLayer = null;
+          baseGeoJsonLayer.eachLayer(function(l){
+            if (l && l.feature && l.feature.properties && String(l.feature.properties.uid) === String(p.uid)) targetLayer = l;
+          });
+          if (targetLayer) {
+            map.setView(targetLayer.getLatLng(), 15);
+            // If the time doesn't actually change, Leaflet.TimeDimension may not emit a new 'timeload'.
+            // So we register a one-shot handler *and* an immediate fallback.
+            var __open = function(){ try { targetLayer.openPopup(); } catch(e) {} };
+            try { map.timeDimension && map.timeDimension.once('timeload', __open); } catch(e) {}
+            setTimeout(__open, 60);
+          }
+        } catch(e) {}
+      }
+
+      item.addEventListener('click', activatePhase);
+      item.addEventListener('keydown', function(ev){
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activatePhase(); }
+      });
+
+      placesListEl.appendChild(item);
+    });
+
+    if (btnClearSelection) { btnClearSelection.disabled = false; btnClearSelection.removeAttribute("disabled"); }
+    return;
+  }
+
+  // NORMAL MODE: list only the places active in the current year \(respecting category filter\)\n  // NORMAL MODE: list ALL places in the dataset, grouped by category.
+  // (No time filtering here: the list is the complete index; the map is filtered by the timeline.)
+  var byCategory = {};
+  (sitesGeojson.features || []).forEach(function(f){
+    var p = f.properties || {};
+    var nm = String(p.sito || '').trim();
+    if (!nm) return;
+
+    // Apply Categoria dropdown filter (and keep story mode behaviour elsewhere)
+    if (!passesActiveFilters(p)) return;
+
+    // Apply sidebar search (free text)
+    if (placeSearchTermLower && nm.toLowerCase().indexOf(placeSearchTermLower) === -1) return;
+
+    var craw = (p.categoria || p.category || '').toString().trim();
+    var catLabel = craw || 'Altro / non classificato';
+
+    if (!byCategory[catLabel]) byCategory[catLabel] = {};
+    if (!byCategory[catLabel][nm]) byCategory[catLabel][nm] = [];
+    byCategory[catLabel][nm].push(f);
+  });
+
+  var catNames = Object.keys(byCategory);
+  catNames.sort(function(a,b){ return a.localeCompare(b, 'it'); });
+
+  // Count total unique places
+  var totalPlaces = 0;
+  catNames.forEach(function(cn){ totalPlaces += Object.keys(byCategory[cn] || {}).length; });
+
+  var _isFiltered = (placeSearchTermLower && placeSearchTermLower.length);
+  if (sidebarCountEl) sidebarCountEl.textContent = totalPlaces + (_isFiltered ? ' filtered places' : ' places (dataset)');
+  placesListEl.innerHTML = '';
+
+
+  var anyOpen = false;
+  catNames.forEach(function(catLabel){
+    var section = document.createElement('div');
+    section.className = 'place-section';
+
+    var names = Object.keys(byCategory[catLabel] || {});
+    names.sort(function(a,b){ return a.localeCompare(b, 'it'); });
+    var catKey = String(catLabel || '').toLowerCase();
+    if (typeof sidebarOpenCategories[catKey] === 'undefined') sidebarOpenCategories[catKey] = false;
+    if (sidebarOpenCategories[catKey]) anyOpen = true;
+
+    var head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'place-section-toggle' + (sidebarOpenCategories[catKey] ? ' is-open' : '');
+    head.setAttribute('aria-expanded', sidebarOpenCategories[catKey] ? 'true' : 'false');
+
+    var main = document.createElement('span');
+    main.className = 'place-section-head-main';
+
+    var dot = document.createElement('span');
+    dot.className = 'place-ico place-ico--section';
+    dot.innerHTML = catIcon(String(catLabel || ''));
+    dot.style.color = catColorFor({ categoria: catLabel });
+
+    var title = document.createElement('span');
+    title.className = 'place-section-label';
+    title.textContent = sentenceCaseLabel(catLabel);
+
+    var count = document.createElement('span');
+    count.className = 'place-section-count';
+    count.textContent = String(names.length);
+
+    var chev = document.createElement('span');
+    chev.className = 'place-section-chevron';
+    chev.textContent = sidebarOpenCategories[catKey] ? '−' : '+';
+
+    main.appendChild(dot);
+    main.appendChild(title);
+    head.appendChild(main);
+    head.appendChild(count);
+    head.appendChild(chev);
+    section.appendChild(head);
+
+    var itemsWrap = document.createElement('div');
+    itemsWrap.className = 'place-section-items';
+    itemsWrap.hidden = !sidebarOpenCategories[catKey];
+
+    names.forEach(function(nm){
+      var group = byCategory[catLabel][nm] || [];
+      group.sort(function(a,b){ return Number((a.properties||{}).start_year) - Number((b.properties||{}).start_year); });
+      var rep = group[0];
+      var p = rep.properties || {};
+
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'place-item';
+
+      var name = document.createElement('div');
+      name.className = 'place-name';
+      name.textContent = nm;
+
+      var meta = document.createElement('div');
+      meta.className = 'place-meta';
+
+      var left = document.createElement('div');
+      left.className = 'place-cat';
+
+      var d2 = document.createElement('span');
+      d2.className = 'place-ico';
+      d2.innerHTML = catIcon((function(v){ v=String(v||''); if (v.toLowerCase()==='education' || v.toLowerCase()==='educazione') return 'school'; return v; })(p.categoria || p.category || ''));
+      d2.style.color = catColorFor(p);
+
+      var phases = document.createElement('span');
+      phases.textContent = (group.length > 1) ? (group.length + ' addresses') : yearLabelForFeature(p);
+
+      left.appendChild(d2);
+      left.appendChild(phases);
+      meta.appendChild(left);
+
+      item.appendChild(name);
+      item.appendChild(meta);
+
+      function activate(){ selectedCategoryColor = catColorFor(p); selectPlaceByName(nm, String((p && p.uid) ? p.uid : '')); }
+      bindSidebarTap(item, activate);
+      item.addEventListener('keydown', function(ev){
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(); }
+      });
+
+      itemsWrap.appendChild(item);
+    });
+
+    bindSidebarTap(head, function(ev){
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      sidebarOpenCategories[catKey] = !sidebarOpenCategories[catKey];
+      updateSidebarList();
+    });
+
+    section.appendChild(itemsWrap);
+    placesListEl.appendChild(section);
+  });
+
+  var intro = document.createElement('div');
+  intro.className = 'sidebar-project-intro';
+  intro.hidden = anyOpen;
+  intro.innerHTML = '<h4>How to use this map</h4><p>' + projectIntroText + '</p>';
+  placesListEl.appendChild(intro);
+
+  if (btnClearSelection) { btnClearSelection.disabled = false; btnClearSelection.removeAttribute("disabled"); }
+}
+
+function selectPlaceByName(name, focusUid) {
+  if (!name) return;
+
+  selectedSiteName = normSiteName(name);
+  selectedFocusUid = (typeof focusUid !== 'undefined' && focusUid !== null) ? String(focusUid) : null;
+
+  // Ensure temporal layer is visible
+  if (!map.hasLayer(timeSitesLayer)) timeSitesLayer.addTo(map);
+
+  // Stop autoplay so the selection feels stable
+  try { if (map._tdPlayer && map._tdPlayer.isPlaying && map._tdPlayer.isPlaying()) map._tdPlayer.stop(); } catch(err) {}
+
+  // Jump the slider to the first phase (earliest start) so the story is visible immediately
+  var phases = (sitesGeojson.features || []).filter(function(ff){
+    return normSiteName((ff.properties||{}).sito) === normSiteName(selectedSiteName);
+  });
+  phases.sort(function(a,b){ return Number((a.properties||{}).start_year) - Number((b.properties||{}).start_year); });
+  try { computeStoryMeta(phases); } catch(e) {}
+  if (phases.length && phases[0].properties) {
+    var t0 = Date.parse(String(phases[0].properties.start_date || '').trim());
+    if (!isNaN(t0)) map.timeDimension.setCurrentTime(t0);
+  }
+
+  // Rebuild the layer stack so the map shows ONLY this place (all its phases) across time
+  rebuildOverlaysAndSearch();
+
+  // Fit to all phases and open the focused popup (or the first one)
+  try {
+    var bounds = [];
+    var firstLayer = null;
+    var focusLayer = null;
+
+    baseGeoJsonLayer.eachLayer(function(l){
+      if (l && l.getLatLng) {
+        bounds.push(l.getLatLng());
+        if (!firstLayer) firstLayer = l;
+
+        try {
+          if (selectedFocusUid && l.feature && l.feature.properties && String(l.feature.properties.uid) === String(selectedFocusUid)) {
+            focusLayer = l;
+          }
+        } catch(e) {}
+      }
+    });
+
+    if (bounds.length) {
+      map.fitBounds(L.latLngBounds(bounds).pad(0.25));
+    } else if (firstLayer) {
+      map.setView(firstLayer.getLatLng(), 15);
+    }
+
+    var toOpen = focusLayer || firstLayer;
+    if (toOpen) {
+      // Same issue as above: if current time doesn't change, 'timeload' may not fire.
+      // So we attempt both: a one-shot 'timeload' and a short fallback timeout.
+      var __open2 = function(){ try { toOpen.openPopup(); } catch(e) {} };
+      try { map.timeDimension && map.timeDimension.once('timeload', __open2); } catch(e) {}
+      setTimeout(__open2, 80);
+    }
+  } catch(e) {}
+
+  // Update the sidebar info box for this place
+  try { renderPlaceInfoForSelected(); } catch(e) {}
+
+  updateSidebarList();
+  setTimeout(function(){ try { if (selectedSiteName) layoutStoryPhaseLabels(); } catch(e) {} }, 80);
+}
+
+function safeText(x){
+  return (x === null || typeof x === 'undefined') ? '' : String(x);
+}
+
+function renderPlaceInfoForSelected() {
+  if (!placeInfoEl) return;
+  if (!selectedSiteName) {
+    placeInfoEl.hidden = true;
+    placeInfoEl.innerHTML = '';
+    return;
+  }
+
+  var phases = (sitesGeojson.features || []).filter(function(f){
+    return normSiteName((f.properties||{}).sito) === normSiteName(selectedSiteName);
+  });
+  phases.sort(function(a,b){ return Number((a.properties||{}).start_year) - Number((b.properties||{}).start_year); });
+  var rep = phases[0] ? (phases[0].properties || {}) : {};
+
+  var cat = safeText(rep.categoria || rep.category);
+  var aff = safeText(rep.affiliazione);
+  var desc = safeText(rep.popup_text);
+  var indir = safeText(rep.indirizzo);
+  var srcInfo = safeText(getPopupSourceInfo(rep));
+
+  var minY = null, maxY = null;
+  phases.forEach(function(f){
+    var p = f.properties || {};
+    var ys = Number(p.start_year);
+    var ye = Number(p.end_year);
+    if (!isNaN(ys)) minY = (minY === null) ? ys : Math.min(minY, ys);
+    if (!isNaN(ye)) maxY = (maxY === null) ? ye : Math.max(maxY, ye);
+  });
+  var years = (minY !== null && maxY !== null)
+    ? ((minY === maxY) ? String(minY) : (minY + '–' + maxY))
+    : '';
+
+  var html = ''
+    + '<div class="place-info-title">' + safeText(selectedSiteName) + '</div>'
+    + '<div class="place-info-meta">'
+    +   (cat ? ('<span class="pill"><span class="pill-ico" style="color:' + catColorFor({categoria:cat}) + '">' + catIcon(cat) + '</span>' + cat + '</span>') : '')
+    +   (years ? ('<span class="pill">' + years + '</span>') : '')
+    +   (phases.length ? ('<span class="pill">' + phases.length + ' ' + (phases.length === 1 ? 'address' : 'addresses') + '</span>') : '')
+    + '</div>'
+    + (indir ? ('<div class="place-info-line"><strong>Address:</strong> ' + indir + '</div>') : '')
+    + (aff ? ('<div class="place-info-line"><strong>Institution established by:</strong> ' + aff + '</div>') : '')
+    + (desc ? ('<div class="place-info-desc">' + desc + '</div>') : '')
+    + (srcInfo ? ('<div class="place-info-source">Source: ' + safeText(srcInfo) + '</div>') : '');
+
+  placeInfoEl.innerHTML = html;
+  placeInfoEl.hidden = false;
+}
+
+function handleSidebarReset(ev) {
+  if (ev) { try { ev.preventDefault(); ev.stopPropagation(); } catch(e) {} }
+  // Hard reset: mode / time / layer state can drift after several interactions.
+  // Use a hard reload, bypassing any stale hash / transient UI state.
+  try {
+    var url = window.location.pathname + window.location.search;
+    window.location.replace(url);
+    return;
+  } catch(e) {}
+  try { window.location.reload(); return; } catch(e2) {}
+
+  selectedSiteName = null;
+  selectedFocusUid = null;
+  lastAutoSearchSelectionKey = '';
+  placeSearchTermLower = '';
+  sidebarOpenCategories = {};
+  try { if (placeSearchInputEl) placeSearchInputEl.value = ''; } catch(e3) {}
+  try { if (placeInfoEl) { placeInfoEl.hidden = true; placeInfoEl.innerHTML = ''; } } catch(e4) {}
+  try { clearSpiderfy(); } catch(e5) {}
+  try { clearStoryMovementLayer(); } catch(e6) {}
+  try { clearPopupConnector(); } catch(e7) {}
+  try { rebuildOverlaysAndSearch(); } catch(e8) {}
+  try { updateSidebarList(); } catch(e9) {}
+}
+if (btnClearSelection) {
+  try {
+    btnClearSelection.disabled = false;
+    btnClearSelection.removeAttribute('disabled');
+    btnClearSelection.setAttribute('aria-disabled', 'false');
+  } catch(e) {}
+  btnClearSelection.addEventListener('click', handleSidebarReset, true);
+  btnClearSelection.addEventListener('pointerup', function(ev){
+    if (ev && ev.pointerType === 'mouse') return;
+    handleSidebarReset(ev);
+  }, true);
+  btnClearSelection.addEventListener('touchend', handleSidebarReset, {passive:false, capture:true});
+  btnClearSelection.addEventListener('keydown', function(ev){
+    if (ev.key === 'Enter' || ev.key === ' ') { handleSidebarReset(ev); }
+  });
+}
+
+// Keep the sidebar in sync with the time slider / autoplay
+map.timeDimension.on('timeload', function(){
+  updateSidebarList();
+  try { if (selectedSiteName) { updateStoryHighlight(); layoutStoryPhaseLabels(); } } catch(e) {}
+  updateOverlapStyles();
+});
+
+map.on('zoomend moveend resize', function(){
+  try { if (selectedSiteName) layoutStoryPhaseLabels(); } catch(e) {}
+});
+
+
+
+      // ---- Legend ----
+      // Legend removed
+      // ---- Search (by "sito" or address) ----
+      // Search control is (re)created by rebuildOverlaysAndSearch()
+// When a place is found via search, move there AND open its popup automatically.
+// We also jump the time slider inside the feature's time window so the feature is visible.
+function bindSearchAutoPopup() {
+  if (!searchControl) return;
+
+  // Remove previous listener (defensive)
+  map.off('search:locationfound');
+
+  map.on('search:locationfound', function(e) {
+    var lyr = e.layer;
+    if (!lyr || !lyr.feature || !lyr.feature.properties) return;
+
+    // Ensure the temporal layer is visible (user may have hidden it via layer selector)
+    if (!map.hasLayer(timeSitesLayer)) timeSitesLayer.addTo(map);
+
+    // Pause autoplay so the popup does not disappear on the next tick
+    try { if (map._tdPlayer && map._tdPlayer.isPlaying && map._tdPlayer.isPlaying()) map._tdPlayer.stop(); } catch(err) {}
+    try { if (map._tdControl && map._tdControl._player && map._tdControl._player.isPlaying && map._tdControl._player.isPlaying()) map._tdControl._player.stop(); } catch(err) {}
+    var t = Date.parse(String(lyr.feature.properties.start_date || '').trim());
+
+    function openNow(){ try{ lyr.openPopup(); }catch(e){} }
+
+    if (!isNaN(t)) {
+      map.timeDimension.once('timeload', openNow);
+      map.timeDimension.setCurrentTime(t);
+    } else {
+      openNow();
+    }
+  });
+}
+
+// Don't auto-close popups when the search UI collapses.
+
+
+try {
+  map.on('move zoom resize', function(){
+    try { refreshOpenPopupConnector(); } catch(e) {}
+  });
+} catch(e) {}
+
+      // ---- A small console hint about missing coordinates ----
+      if (typeof milanoSitesNoCoords !== 'undefined' && milanoSitesNoCoords.length) {
+        console.log("Records without coordinates (not mapped):", milanoSitesNoCoords.length);
+      }
+
+    </script>
+  </body>
+</html>

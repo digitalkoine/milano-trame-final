@@ -1,0 +1,193 @@
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Helvetica Neue', Helvetica, Arial, Sans-serif;
+  will-change: auto;
+}
+  /* this set the style of the id "map", the main map which appears in the webpage */
+  #map {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 100%;
+        }
+  h1 {
+      font-size: 20px;
+      line-height: 30px;
+      }
+
+  h2 {
+      font-size: 14px;
+      line-height: 20px;
+      margin-bottom: 10px;
+      }
+
+  a  {
+      text-decoration: none;
+      color: #2dc4b2;
+      }
+
+  .legend {
+    line-height: 30px;
+    color: #555;
+      }
+  .legend i {
+    width: 18px;
+    height: 18px;
+    float: left;
+    margin-right: 20px;
+    opacity: 0.7;
+      }
+
+  .info {
+      padding: 6px 15px;
+      font: 14px/16px Arial, Helvetica, sans-serif;
+      background: white;
+      line-height: 20px;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+  }
+
+  ul {
+      padding-left: 20px;
+  }
+
+  .disclaimer {
+      padding: 6px 15px;
+      font: 1vw Arial, Helvetica, sans-serif;
+      background: white;
+      line-height: 20pt;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+      text-align: justify;
+  }
+
+  .info h4 {
+      margin: 0 0 5px;
+      color: #777;
+  }
+
+  .legend .circle {
+                  border-radius: 50%;
+                  width: 10px;
+                  height: 10px;
+                  margin-top: 5px;
+                  border:1px solid black;
+                  -moz-border-radius:50%;
+                  -webkit-border-radius:50%;
+  }
+
+  .yearbox {
+      padding-top: 0px;
+      padding-right: 10px;
+      padding-bottom: 0px;
+      padding-left: 10px;
+      font: 20px Arial, Helvetica, sans-serif;
+      background: white;
+      line-height: 0px;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+      text-align: center;
+  }
+
+  .searchBox {
+      padding-top: 0px;
+      padding-right: 10px;
+      padding-bottom: 0px;
+      padding-left: 10px;
+      font: 20px Arial, Helvetica, sans-serif;
+      background: white;
+      line-height: 10px;
+      background: rgba(255,255,255,0.9);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+      text-align: center;
+      max-height: 300px;
+      max-width: 300px;
+      overflow-y: auto;
+  }
+
+
+  .infoBox {
+    padding-top: 0px;
+    padding-right: 10px;
+    padding-bottom: 0px;
+    padding-left: 10px;
+    font: 20px Arial, Helvetica, sans-serif;
+    background: white;
+    line-height: 10px;
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+    border-radius: 5px;
+    text-align: center;
+    max-height: 300px;
+    overflow-y: auto;
+}
+  .searchBox p {
+      font-size: 10px;
+      text-align: left;
+      margin: 10px;
+  }
+
+  .searchBox h1 {
+      font-size: 12px;
+      text-align: left;
+      margin: 10px;
+  }
+
+  .searchBox h2 {
+      font-size: 8px;
+      text-align: left;
+      font-weight: normal;
+  }
+
+  
+  .infoBox p {
+    font-size: 10px;
+    text-align: left;
+    margin: 10px;
+}
+
+.infoBox h1 {
+    font-size: 12px;
+    text-align: left;
+    margin: 10px;
+}
+
+.infoBox h2 {
+    font-size: 8px;
+    text-align: left;
+    font-weight: normal;
+}
+
+  #button-wrapper {
+      position: absolute;
+      bottom: 100px;
+      z-index: 9999;
+      width: 100%;
+      border: 1px;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+      width: 100px;
+  }
+
+  .button {
+      background-color:yellow;
+  }
+
+  .button:focus {
+      background-color:white;
+  }
+
+  .mydivicon{
+    width: 12px
+    height: 12px;
+    border-radius: 10px;
+    background: #ff7800;
+    border: 1px solid #000;
+    opacity: 0.85
+}

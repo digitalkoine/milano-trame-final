@@ -4,7 +4,7 @@ This repository contains an interactive time-enabled map centered on **Milan** t
 
 The map is built with **Leaflet** and a **time slider** (Leaflet.TimeDimension). Places appear/disappear according to their start/end dates. A category panel allows comparing multiple categories at the same time.
 
-https://digitalkoine.github.io/milano-trame-draft-final/
+https://digitalkoine.github.io/milano-trame-final/ 
 
 ---
 

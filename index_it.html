@@ -159,6 +159,16 @@
         map.fitBounds(bounds, opts);
       }
 
+      function fitStoryBoundsKeepingSidebar(bounds) {
+        if (!map || !bounds || !bounds.isValid || !bounds.isValid()) return;
+        var insets = getSidebarOcclusionInsets();
+        map.fitBounds(bounds, {
+          maxZoom: 13,
+          paddingTopLeft: [72 + insets.left, 84 + insets.top],
+          paddingBottomRight: [72 + insets.right, 148 + insets.bottom]
+        });
+      }
+
       function focusLatLngKeepingSidebar(latlng, zoom) {
         if (!map || !latlng) return;
         map.setView(latlng, zoom);
@@ -209,6 +219,7 @@
 
       function panOpenPopupIntoVisibleMap(layer) {
         if (!map || !layer || !layer.getPopup) return;
+        if (selectedSiteName) return;
         var popup = null;
         try { popup = layer.getPopup(); } catch(e0) { popup = null; }
         if (!popup || !popup.getElement) return;
@@ -497,9 +508,14 @@ function bindPopupHtml(feature, layer) {
 	          layer.on('click', function(e) {
 	            if (!p || !siteName) return;
 	            selectedFocusUid = String(p.uid || '');
+	            var tClick = Date.parse(String(p.start_date || '').trim());
+	            if (!isNaN(tClick)) {
+	              try { map.timeDimension.setCurrentTime(tClick); } catch(errTime) {}
+	            }
 	            try { renderPlaceInfoForSelected(); } catch(err) {}
 	            try { focusLatLngKeepingSidebar(layer.getLatLng(), Math.max(map.getZoom ? map.getZoom() : 13, 13)); } catch(err0) {}
 	            try { layer.openPopup(); } catch(err2) {}
+	            startTimelinePlayer(120);
 	            try { if (e) L.DomEvent.stop(e); } catch(err3) {}
 	          });
         }
@@ -647,6 +663,45 @@ var storyIndexByUid = {};
 var storyPathLatLngs = [];
 var storyMovementLayer = null;
 var expandedSidebarCategoryLower = null;
+
+function startTimelinePlayer(delayMs) {
+  var delay = (typeof delayMs === 'number') ? delayMs : 80;
+  setTimeout(function(){
+    try {
+      if (map && map._tdPlayer && typeof map._tdPlayer.start === 'function') {
+        map._tdPlayer.start();
+      }
+    } catch(e) {}
+    try {
+      var ctrlPlayer = map && map._tdControl && map._tdControl._player;
+      if (ctrlPlayer && ctrlPlayer !== map._tdPlayer && typeof ctrlPlayer.start === 'function') {
+        ctrlPlayer.start();
+      }
+    } catch(e2) {}
+  }, Math.max(0, delay));
+}
+
+function storyStartTimeForSelection(siteName, focusUid) {
+  var normalized = normSiteName(siteName || selectedSiteName);
+  if (!normalized) return null;
+  var phases = (sitesGeojson.features || []).filter(function(f){
+    return normSiteName((f.properties || {}).sito) === normalized;
+  });
+  phases.sort(function(a,b){ return Number((a.properties||{}).start_year) - Number((b.properties||{}).start_year); });
+  var chosen = null;
+  if (focusUid) {
+    for (var i = 0; i < phases.length; i++) {
+      if (phases[i] && phases[i].properties && String(phases[i].properties.uid) === String(focusUid)) {
+        chosen = phases[i];
+        break;
+      }
+    }
+  }
+  if (!chosen) chosen = phases[0] || null;
+  if (!chosen || !chosen.properties) return null;
+  var t = Date.parse(String(chosen.properties.start_date || '').trim());
+  return isNaN(t) ? null : t;
+}
 
 function clearStoryMovementLayer() {
   try { if (storyMovementLayer && map) map.removeLayer(storyMovementLayer); } catch(e) {}
@@ -2427,8 +2482,8 @@ function updateSidebarList() {
       item.appendChild(meta);
 
       function activatePhase(){
-        // Jump to this phase and open its popup
-        try { if (map._tdPlayer && map._tdPlayer.isPlaying && map._tdPlayer.isPlaying()) map._tdPlayer.stop(); } catch(err) {}
+        // Jump to this phase, open its popup, and keep the chronology running.
+        selectedFocusUid = String(p.uid || '');
         var t0 = Date.parse(String(p.start_date || '').trim());
         if (!isNaN(t0)) map.timeDimension.setCurrentTime(t0);
 
@@ -2446,6 +2501,7 @@ function updateSidebarList() {
             setTimeout(__open, 60);
           }
         } catch(e) {}
+        startTimelinePlayer(120);
       }
 
       item.addEventListener('click', activatePhase);
@@ -2614,18 +2670,15 @@ function selectPlaceByName(name, focusUid) {
   // Ensure temporal layer is visible
   if (!map.hasLayer(timeSitesLayer)) timeSitesLayer.addTo(map);
 
-  // Stop autoplay so the selection feels stable
-  try { if (map._tdPlayer && map._tdPlayer.isPlaying && map._tdPlayer.isPlaying()) map._tdPlayer.stop(); } catch(err) {}
-
-  // Jump the slider to the first phase (earliest start) so the story is visible immediately
+  // Jump the slider to the selected phase (or earliest start) so the story is visible immediately
   var phases = (sitesGeojson.features || []).filter(function(ff){
     return normSiteName((ff.properties||{}).sito) === normSiteName(selectedSiteName);
   });
   phases.sort(function(a,b){ return Number((a.properties||{}).start_year) - Number((b.properties||{}).start_year); });
   try { computeStoryMeta(phases); } catch(e) {}
-  if (phases.length && phases[0].properties) {
-    var t0 = Date.parse(String(phases[0].properties.start_date || '').trim());
-    if (!isNaN(t0)) map.timeDimension.setCurrentTime(t0);
+  var t0 = storyStartTimeForSelection(selectedSiteName, selectedFocusUid);
+  if (t0 !== null && !isNaN(t0)) {
+    try { map.timeDimension.setCurrentTime(t0); } catch(eTime) {}
   }
 
   // Rebuild the layer stack so the map shows ONLY this place (all its phases) across time
@@ -2650,19 +2703,30 @@ function selectPlaceByName(name, focusUid) {
       }
     });
 
-    if (bounds.length) {
-      fitBoundsKeepingSidebar(L.latLngBounds(bounds).pad(0.25), { maxZoom: 15 });
+    var storyBounds = bounds.length ? L.latLngBounds(bounds).pad(0.32) : null;
+    if (storyBounds && storyBounds.isValid && storyBounds.isValid()) {
+      fitStoryBoundsKeepingSidebar(storyBounds);
     } else if (firstLayer) {
       focusLatLngKeepingSidebar(firstLayer.getLatLng(), 15);
     }
 
 	    var toOpen = focusLayer || firstLayer;
 	    if (toOpen) {
+	      var keepStoryOverview = bounds.length > 1;
 	      // Same issue as above: if current time doesn't change, 'timeload' may not fire.
 	      // So we attempt both: a one-shot 'timeload' and a short fallback timeout.
 	      var __open2 = function(){
-	        try { if (toOpen.getLatLng) focusLatLngKeepingSidebar(toOpen.getLatLng(), Math.max(map.getZoom ? map.getZoom() : 13, 13)); } catch(e0) {}
+	        try {
+	          if (!keepStoryOverview && toOpen.getLatLng) {
+	            focusLatLngKeepingSidebar(toOpen.getLatLng(), Math.max(map.getZoom ? map.getZoom() : 13, 13));
+	          }
+	        } catch(e0) {}
 	        try { toOpen.openPopup(); } catch(e) {}
+	        if (keepStoryOverview && storyBounds) {
+	          setTimeout(function(){
+	            try { fitStoryBoundsKeepingSidebar(storyBounds); } catch(eFit) {}
+	          }, 80);
+	        }
 	      };
 	      try { map.timeDimension && map.timeDimension.once('timeload', __open2); } catch(e) {}
 	      setTimeout(__open2, 80);
@@ -2673,6 +2737,7 @@ function selectPlaceByName(name, focusUid) {
   try { renderPlaceInfoForSelected(); } catch(e) {}
 
   updateSidebarList();
+  startTimelinePlayer(180);
   setTimeout(function(){ try { if (selectedSiteName) layoutStoryPhaseLabels(); } catch(e) {} }, 80);
 }
 
@@ -2733,6 +2798,7 @@ function renderPlaceInfoForSelected() {
 function handleSidebarReset(ev) {
   if (ev) { try { ev.preventDefault(); ev.stopPropagation(); } catch(e) {} }
   var wasInStoryMode = !!selectedSiteName;
+  var resumeTime = wasInStoryMode ? storyStartTimeForSelection(selectedSiteName, selectedFocusUid) : null;
   selectedSiteName = null;
   selectedSiteLabel = null;
   selectedFocusUid = null;
@@ -2753,10 +2819,16 @@ function handleSidebarReset(ev) {
   try { clearPopupConnector(); } catch(e7) {}
   try { if (typeof window.refreshCommunityControl === 'function') window.refreshCommunityControl(); } catch(e8) {}
   try { rebuildOverlaysAndSearch(); } catch(e9) {}
+  try {
+    if (resumeTime !== null && !isNaN(resumeTime) && map && map.timeDimension) {
+      map.timeDimension.setCurrentTime(resumeTime);
+    }
+  } catch(e9b) {}
   try { updateSidebarList(); } catch(e10) {}
   setTimeout(function(){
     try { if (placesListEl) placesListEl.scrollTop = 0; } catch(e11) {}
     try { fitAllSitesKeepingSidebar(); } catch(e12) {}
+    startTimelinePlayer(40);
   }, 120);
 }
 if (btnClearSelection) {
@@ -2808,9 +2880,6 @@ function bindSearchAutoPopup() {
     // Ensure the temporal layer is visible (user may have hidden it via layer selector)
     if (!map.hasLayer(timeSitesLayer)) timeSitesLayer.addTo(map);
 
-    // Pause autoplay so the popup does not disappear on the next tick
-    try { if (map._tdPlayer && map._tdPlayer.isPlaying && map._tdPlayer.isPlaying()) map._tdPlayer.stop(); } catch(err) {}
-    try { if (map._tdControl && map._tdControl._player && map._tdControl._player.isPlaying && map._tdControl._player.isPlaying()) map._tdControl._player.stop(); } catch(err) {}
     var t = Date.parse(String(lyr.feature.properties.start_date || '').trim());
 
 	    function openNow(){
@@ -2821,8 +2890,10 @@ function bindSearchAutoPopup() {
     if (!isNaN(t)) {
       map.timeDimension.once('timeload', openNow);
       map.timeDimension.setCurrentTime(t);
+      startTimelinePlayer(120);
     } else {
       openNow();
+      startTimelinePlayer(120);
     }
   });
 }

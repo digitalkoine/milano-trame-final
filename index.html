@@ -690,6 +690,30 @@ function startTimelinePlayer(delayMs) {
   }, Math.max(0, delay));
 }
 
+function isTimelinePlayerRunning() {
+  try {
+    if (map && map._tdPlayer) {
+      if (typeof map._tdPlayer.isPlaying === 'function') return !!map._tdPlayer.isPlaying();
+      return !!map._tdPlayer._playing;
+    }
+  } catch(e) {}
+  return false;
+}
+
+function stopTimelinePlayer() {
+  try {
+    if (map && map._tdPlayer && typeof map._tdPlayer.stop === 'function') {
+      map._tdPlayer.stop();
+    }
+  } catch(e) {}
+  try {
+    var ctrlPlayer = map && map._tdControl && map._tdControl._player;
+    if (ctrlPlayer && ctrlPlayer !== map._tdPlayer && typeof ctrlPlayer.stop === 'function') {
+      ctrlPlayer.stop();
+    }
+  } catch(e2) {}
+}
+
 function storyStartTimeForSelection(siteName, focusUid) {
   var normalized = normSiteName(siteName || selectedSiteName);
   if (!normalized) return null;
@@ -2151,6 +2175,12 @@ function makeCountIcon(count, color, size, rings) {
 // --- Spiderfy (cluster-like expansion) for stacked markers ---
 var spiderfyLayer = null;
 var spiderfyOriginKey = null;
+var spiderfyOriginLatLng = null;
+var spiderfyPausedTimeline = false;
+
+function keyForStackLatLng(ll) {
+  return ll.lat.toFixed(6) + ',' + ll.lng.toFixed(6);
+}
 
 function ensureSpiderfyLayer() {
   if (!spiderfyLayer) {
@@ -2160,15 +2190,19 @@ function ensureSpiderfyLayer() {
       map.on('click', function(){ clearSpiderfy(); });
       map.on('zoomstart', function(){ clearSpiderfy(); });
       map.on('movestart', function(){ clearSpiderfy(); });
-      map.timeDimension && map.timeDimension.on('timeload', function(){ clearSpiderfy(); });
+      map.timeDimension && map.timeDimension.on('timeload', refreshSpiderfyForCurrentTime);
     } catch(e) {}
   }
 }
 
-function clearSpiderfy() {
+function clearSpiderfy(resumeTimeline) {
   if (!spiderfyLayer) return;
+  var shouldResumeTimeline = (resumeTimeline !== false) && spiderfyPausedTimeline && !selectedSiteName;
   try { spiderfyLayer.clearLayers(); } catch(e) {}
   spiderfyOriginKey = null;
+  spiderfyOriginLatLng = null;
+  spiderfyPausedTimeline = false;
+  if (shouldResumeTimeline) startTimelinePlayer(80);
 }
 
 // Icon-only marker for category glyphs (no coloured blob).
@@ -2204,17 +2238,54 @@ function selectPlaceFromFeature(feature) {
   selectPlaceByName(p.sito, String(p.uid || ''));
 }
 
-function spiderfyStack(originLatLng, key, features) {
+function activeStackFeaturesForKey(key) {
+  var out = [];
+  if (!key || !map || !map.timeDimension) return out;
+  var t = map.timeDimension.getCurrentTime();
+  var displayed = (timeSitesLayer && timeSitesLayer._currentLayer) ? timeSitesLayer._currentLayer : baseGeoJsonLayer;
+  if (!displayed || !displayed.eachLayer) return out;
+
+  displayed.eachLayer(function(l){
+    if (!l || !l.feature || !l.feature.properties || !l.getLatLng) return;
+    var f = l.feature;
+    var p = f.properties || {};
+    if (!passesActiveFilters(p)) return;
+    if (!isFeatureActiveAtTime(f, t)) return;
+    if (keyForStackLatLng(l.getLatLng()) === key) out.push(f);
+  });
+  return out;
+}
+
+function refreshSpiderfyForCurrentTime() {
+  if (!spiderfyOriginKey || !spiderfyOriginLatLng || selectedSiteName) {
+    clearSpiderfy();
+    return;
+  }
+  var features = activeStackFeaturesForKey(spiderfyOriginKey);
+  if (features.length > 1) {
+    spiderfyStack(spiderfyOriginLatLng, spiderfyOriginKey, features, true);
+  } else {
+    clearSpiderfy();
+  }
+}
+
+function spiderfyStack(originLatLng, key, features, forceRefresh) {
   ensureSpiderfyLayer();
   if (!features || features.length <= 1) return;
 
   // Toggle behaviour: clicking the same stack closes it.
-  if (spiderfyOriginKey && spiderfyOriginKey === key) {
+  if (!forceRefresh && spiderfyOriginKey && spiderfyOriginKey === key) {
     clearSpiderfy();
     return;
   }
-  clearSpiderfy();
+  var shouldPauseTimeline = !forceRefresh && isTimelinePlayerRunning();
+  clearSpiderfy(false);
+  if (shouldPauseTimeline) {
+    stopTimelinePlayer();
+    spiderfyPausedTimeline = true;
+  }
   spiderfyOriginKey = key;
+  spiderfyOriginLatLng = originLatLng;
 
 	  var n = features.length;
 	  var centerPt = map.latLngToLayerPoint(originLatLng);
@@ -2273,10 +2344,6 @@ function updateOverlapStyles() {
   var counts = {};
   var groups = {};
 
-  function keyForLatLng(ll) {
-    return ll.lat.toFixed(6) + ',' + ll.lng.toFixed(6);
-  }
-
   // Prefer the actually displayed geojson layer (TimeDimension's current layer)
   // so styling always matches what the user sees.
   var displayed = (timeSitesLayer && timeSitesLayer._currentLayer) ? timeSitesLayer._currentLayer : baseGeoJsonLayer;
@@ -2290,7 +2357,7 @@ function updateOverlapStyles() {
     if (!passesActiveFilters(p)) return;
     if (!isFeatureActiveAtTime(f, t)) return;
 
-    var k = keyForLatLng(l.getLatLng());
+    var k = keyForStackLatLng(l.getLatLng());
     counts[k] = (counts[k] || 0) + 1;
     if (!groups[k]) groups[k] = [];
     groups[k].push(l);
@@ -2315,7 +2382,7 @@ function updateOverlapStyles() {
       return;
     }
 
-    var k = keyForLatLng(l.getLatLng());
+    var k = keyForStackLatLng(l.getLatLng());
     var c = counts[k] || 1;
 
     // Determine if this layer is the "leader" of its coordinate group
@@ -2383,7 +2450,7 @@ function updateOverlapStyles() {
         try { if (e) L.DomEvent.stop(e); } catch(err) {}
         var ll = this.getLatLng ? this.getLatLng() : null;
         if (!ll) return;
-        var kk = this._stackKey || keyForLatLng(ll);
+        var kk = this._stackKey || keyForStackLatLng(ll);
         var feats = this._stackFeatures || [];
         var cc = this._stackCount || feats.length || 1;
         if (cc > 1 && feats.length) {

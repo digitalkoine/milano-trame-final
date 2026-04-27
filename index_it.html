@@ -170,6 +170,81 @@
         }
       }
 
+      function fitCurrentFilteredMarkersKeepingSidebar() {
+        if (!map || selectedSiteName) return;
+        var t = map.timeDimension ? map.timeDimension.getCurrentTime() : NaN;
+        var displayed = (timeSitesLayer && timeSitesLayer._currentLayer) ? timeSitesLayer._currentLayer : baseGeoJsonLayer;
+        if (!displayed || !displayed.eachLayer) return;
+
+        var bounds = L.latLngBounds([]);
+        displayed.eachLayer(function(layer){
+          if (!layer || !layer.getLatLng || !layer.feature || !layer.feature.properties) return;
+          var p = layer.feature.properties || {};
+          if (!passesActiveFilters(p)) return;
+          if (!isNaN(t) && !isFeatureActiveAtTime(layer.feature, t)) return;
+          bounds.extend(layer.getLatLng());
+        });
+
+        if (!bounds.isValid()) return;
+        if (bounds.getNorthEast().equals(bounds.getSouthWest())) {
+          focusLatLngKeepingSidebar(bounds.getCenter(), Math.max(map.getZoom ? map.getZoom() : 12, 13));
+        } else {
+          fitBoundsKeepingSidebar(bounds.pad(0.18), { maxZoom: 13 });
+        }
+      }
+
+      function fitAllSitesKeepingSidebar() {
+        if (!map) return;
+        var bounds = L.latLngBounds([]);
+        (sitesGeojson.features || []).forEach(function(f){
+          var g = f && f.geometry;
+          if (!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) return;
+          var lng = Number(g.coordinates[0]);
+          var lat = Number(g.coordinates[1]);
+          if (isNaN(lat) || isNaN(lng)) return;
+          bounds.extend([lat, lng]);
+        });
+        if (bounds.isValid()) fitBoundsKeepingSidebar(bounds.pad(0.06), { maxZoom: 13 });
+      }
+
+      function panOpenPopupIntoVisibleMap(layer) {
+        if (!map || !layer || !layer.getPopup) return;
+        var popup = null;
+        try { popup = layer.getPopup(); } catch(e0) { popup = null; }
+        if (!popup || !popup.getElement) return;
+        var el = popup.getElement();
+        if (!el || !map.getContainer) return;
+
+        var mapRect = map.getContainer().getBoundingClientRect();
+        var popRect = el.getBoundingClientRect();
+        var insets = getSidebarOcclusionInsets();
+        var size = map.getSize();
+        var pad = 24;
+        var visible = {
+          left: insets.left + pad,
+          top: insets.top + pad,
+          right: size.x - insets.right - pad,
+          bottom: size.y - insets.bottom - pad
+        };
+        var box = {
+          left: popRect.left - mapRect.left,
+          top: popRect.top - mapRect.top,
+          right: popRect.right - mapRect.left,
+          bottom: popRect.bottom - mapRect.top
+        };
+
+        var dx = 0;
+        var dy = 0;
+        if (box.right > visible.right) dx = box.right - visible.right;
+        else if (box.left < visible.left) dx = box.left - visible.left;
+        if (box.bottom > visible.bottom) dy = box.bottom - visible.bottom;
+        else if (box.top < visible.top) dy = box.top - visible.top;
+
+        if (dx || dy) {
+          try { map.panBy([dx, dy], { animate: true, duration: 0.25 }); } catch(e1) {}
+        }
+      }
+
       // ---- Build points GeoJSON ----
       var sitesGeojson = buildPointsForSites(milanoSites);
 
@@ -265,12 +340,9 @@ var affiliationMeta = getAffiliations(milanoSites);
 var affiliations = affiliationMeta.labels;
 
 var affiliationsLowerAll = affiliationMeta.keys;
-// NOTE: Comunità is used for HIGHLIGHTING ONLY (marker outlines).
-// It must not filter which points are shown.
-var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward compatibility (always = all)
+var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward compatibility
 
-// Comunità selection state (multi-select highlight)
-// Empty = no highlight (no outlines)
+// Comunità selection state. Empty = no highlight; otherwise it outlines matching visible points.
 var selectedAffiliationsLower = [];
 
 // Deterministic outline colours for communities (used as marker borders)
@@ -385,13 +457,17 @@ function bindPopupHtml(feature, layer) {
           className: 'leaflet-popup--mini'
         });
 
-        layer.on('popupopen', function(){
-          setTimeout(function(){
-            try { applySmartPopupPlacement(layer); } catch(errp) {}
-            try { updatePopupConnector(layer); } catch(errc) {}
-            try { layoutStoryPhaseLabels(); } catch(errl) {}
-          }, 0);
-        });
+	        layer.on('popupopen', function(){
+	          setTimeout(function(){
+	            try { applySmartPopupPlacement(layer); } catch(errp) {}
+	            try { panOpenPopupIntoVisibleMap(layer); } catch(errv) {}
+	            try { updatePopupConnector(layer); } catch(errc) {}
+	            try { layoutStoryPhaseLabels(); } catch(errl) {}
+	          }, 0);
+	          setTimeout(function(){
+	            try { panOpenPopupIntoVisibleMap(layer); } catch(errv2) {}
+	          }, 90);
+	        });
         layer.on('popupclose', function(){
           setTimeout(function(){
             try { clearPopupConnector(layer); } catch(errc2) {}
@@ -418,13 +494,14 @@ function bindPopupHtml(feature, layer) {
         // - In the GENERAL view, clicks are managed by updateOverlapStyles() so stacks can "spiderfy".
         // - In STORY mode (isolated place), we keep a simple click to open popup + update focus.
         if (selectedSiteName) {
-          layer.on('click', function(e) {
-            if (!p || !siteName) return;
-            selectedFocusUid = String(p.uid || '');
-            try { renderPlaceInfoForSelected(); } catch(err) {}
-            try { layer.openPopup(); } catch(err2) {}
-            try { if (e) L.DomEvent.stop(e); } catch(err3) {}
-          });
+	          layer.on('click', function(e) {
+	            if (!p || !siteName) return;
+	            selectedFocusUid = String(p.uid || '');
+	            try { renderPlaceInfoForSelected(); } catch(err) {}
+	            try { focusLatLngKeepingSidebar(layer.getLatLng(), Math.max(map.getZoom ? map.getZoom() : 13, 13)); } catch(err0) {}
+	            try { layer.openPopup(); } catch(err2) {}
+	            try { if (e) L.DomEvent.stop(e); } catch(err3) {}
+	          });
         }
       }
 
@@ -444,17 +521,12 @@ function buildLayers(selectedCategoriesLower, selectedAffiliationsLower) {
     ? selectedCategoriesLower.map(function(x){ return (x || '').toString().trim().toLowerCase(); }).filter(Boolean)
     : null;
 
-  // Comunità selection is highlight-only, so we DO NOT filter features by affiliation.
-  // (selectedAffiliationsLower is ignored and kept only for backward compatibility.)
-  var selectedAff = null;
-
   var filtered;
   if (selected === null) {
     filtered = sitesGeojson;
   } else if (selected.length === 0) {
     filtered = { type: 'FeatureCollection', features: [] };
   } else {
-    // Filter features whose categoria is in selected
     filtered = {
       type: 'FeatureCollection',
       features: (sitesGeojson.features || []).filter(function(f) {
@@ -1359,7 +1431,7 @@ function rebuildOverlaysAndSearch() {
   try { if (searchControl) map.removeControl(searchControl); } catch(e) {}
   try { if (map.hasLayer(timeSitesLayer)) map.removeLayer(timeSitesLayer); } catch(e) {}
 
-  // Rebuild layers using current activeCategoriesLower + activeAffiliationsLower
+  // Rebuild layers using current category filters. Community selections only add outlines.
   var layersNew = buildLayers(activeCategoriesLower, activeAffiliationsLower);
   baseGeoJsonLayer = layersNew.base;
   timeSitesLayer = layersNew.timed;
@@ -1613,7 +1685,7 @@ function autoActivateSidebarSearch(forceFirst) {
 }
 
 
-// ---- Comunità dropdown (highlight-only) ----
+// ---- Comunità dropdown ----
 var CommunityDropdownControl = L.Control.extend({
   options: { position: 'topright' },
   onAdd: function() {
@@ -1701,28 +1773,31 @@ function updateToggleCount() {
         (isClear ? '' : ('<span class="aff-swatch" style="--stroke:' + strokeCol + '"></span>')) +
         '<span class="aff-label">' + label + '</span>';
 
-      function onAffActivate(e){
-        try { L.DomEvent.stop(e); } catch(err) {}
-        if (e && e.preventDefault) e.preventDefault();
-        markControlInteraction();
+	      function onAffActivate(e){
+	        try { L.DomEvent.stop(e); } catch(err) {}
+	        if (e && e.preventDefault) e.preventDefault();
+	        markControlInteraction();
 
-        if (isClear) {
-          selectedAffiliationsLower = [];
-        } else {
-          var idx = selectedAffiliationsLower.indexOf(keyLower);
-          if (idx >= 0) selectedAffiliationsLower.splice(idx, 1);
-          else selectedAffiliationsLower.push(keyLower);
-          // stable ring order
-          try {
-            selectedAffiliationsLower.sort(function(a,b){ return affiliationsLowerAll.indexOf(a) - affiliationsLowerAll.indexOf(b); });
-          } catch(eSort) {}
-        }
-
-        updateAffButtons();
-        updateToggleCount();
-        try { clearSpiderfy(); } catch(e1) {}
-        try { updateOverlapStyles(); } catch(e2) {}
-      }
+	        if (isClear) {
+	          selectedAffiliationsLower = [];
+	        } else {
+	          var idx = selectedAffiliationsLower.indexOf(keyLower);
+	          if (idx >= 0) selectedAffiliationsLower.splice(idx, 1);
+	          else selectedAffiliationsLower.push(keyLower);
+	          try {
+	            selectedAffiliationsLower.sort(function(a,b){ return affiliationsLowerAll.indexOf(a) - affiliationsLowerAll.indexOf(b); });
+	          } catch(eSort) {}
+	        }
+	        activeAffiliationsLower = selectedAffiliationsLower.length
+	          ? selectedAffiliationsLower.slice()
+	          : affiliationsLowerAll.slice();
+	        updateAffButtons();
+	        updateToggleCount();
+	        try { clearSpiderfy(); } catch(e1) {}
+	        try { updateOverlapStyles(); } catch(e2) {}
+	        try { if (selectedSiteName) updateStoryHighlight(); } catch(e3) {}
+	        closePanel();
+	      }
       if (window.PointerEvent) {
         b.addEventListener('pointerdown', onAffActivate, { passive: false });
       } else {
@@ -1754,8 +1829,12 @@ function updateToggleCount() {
       var kk = affiliationsLowerAll[k];
       affButtons.push(makeAffButton(affiliations[k], kk, false));
     }
-    updateAffButtons();
-    updateToggleCount();
+	    updateAffButtons();
+	    updateToggleCount();
+	    window.refreshCommunityControl = function(){
+	      try { updateAffButtons(); } catch(eA) {}
+	      try { updateToggleCount(); } catch(eC) {}
+	    };
 
     L.DomEvent.disableClickPropagation(container);
     L.DomEvent.disableScrollPropagation(container);
@@ -1895,7 +1974,6 @@ function affiliationIsActive(p) {
 }
 
 function passesActiveFilters(p) {
-  // Comunità selection must NOT filter the dataset; it is used only for outline highlighting.
   return categoryIsActive(p);
 }
 
@@ -2074,14 +2152,14 @@ function spiderfyStack(originLatLng, key, features) {
   clearSpiderfy();
   spiderfyOriginKey = key;
 
-  var n = features.length;
-  var centerPt = map.latLngToLayerPoint(originLatLng);
-  var radiusPx = Math.max(18, Math.min(45, 14 + 6 * Math.sqrt(n)));
+	  var n = features.length;
+	  var centerPt = map.latLngToLayerPoint(originLatLng);
+	  var radiusPx = Math.max(26, Math.min(42, 18 + 7 * Math.sqrt(n)));
 
-  for (var i = 0; i < n; i++) {
-    var ang = (Math.PI * 2 * i) / n;
-    var pt = L.point(centerPt.x + radiusPx * Math.cos(ang), centerPt.y + radiusPx * Math.sin(ang));
-    var ll = map.layerPointToLatLng(pt);
+	  for (var i = 0; i < n; i++) {
+	    var ang = (-Math.PI / 2) + ((Math.PI * 2 * i) / n);
+	    var pt = L.point(centerPt.x + radiusPx * Math.cos(ang), centerPt.y + radiusPx * Math.sin(ang));
+	    var ll = map.layerPointToLatLng(pt);
 
     var p = (features[i].properties || {});
     var catKey = (p.categoria || '').toString().trim().toLowerCase();
@@ -2096,7 +2174,7 @@ function spiderfyStack(originLatLng, key, features) {
       }
     } catch(e) {}
     var rings = present.length ? ringsCssForSelectedKeys(present) : '';
-    var m = L.marker(ll, { icon: makeCategoryIcon((p.categoria || p.category || catKey || ''), catCol, 24, rings), riseOnHover: true });
+	    var m = L.marker(ll, { icon: makeCategoryIcon((p.categoria || p.category || catKey || ''), catCol, 24, rings), riseOnHover: true });
     try { bindPopupHtml(features[i], m); } catch(e) {}
 
     // Clicking one of the spiderfied points: open its popup.
@@ -2283,11 +2361,12 @@ function bindSidebarTap(el, handler) {
 function updateSidebarList() {
   if (!placesListEl || !map || !map.timeDimension) return;
 
-  var t = map.timeDimension.getCurrentTime();
-  var y = getCurrentYear();
-  if (sidebarYearEl) sidebarYearEl.textContent = (y !== null ? y : '—');
+	  var t = map.timeDimension.getCurrentTime();
+	  var y = getCurrentYear();
+	  if (sidebarYearEl) sidebarYearEl.textContent = (y !== null ? y : '—');
+	  if (btnClearSelection) btnClearSelection.textContent = selectedSiteName ? "Torna all'elenco" : 'Reset';
 
-  if (sidebarTitleEl) {
+	  if (sidebarTitleEl) {
     sidebarTitleEl.innerHTML = selectedSiteName
       ? ('<span style="font-weight:700">' + String(selectedSiteLabel || selectedSiteName || '') + '</span> — <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>')
       : ('Enti ebraici a Milano<br>anno <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>');
@@ -2577,14 +2656,17 @@ function selectPlaceByName(name, focusUid) {
       focusLatLngKeepingSidebar(firstLayer.getLatLng(), 15);
     }
 
-    var toOpen = focusLayer || firstLayer;
-    if (toOpen) {
-      // Same issue as above: if current time doesn't change, 'timeload' may not fire.
-      // So we attempt both: a one-shot 'timeload' and a short fallback timeout.
-      var __open2 = function(){ try { toOpen.openPopup(); } catch(e) {} };
-      try { map.timeDimension && map.timeDimension.once('timeload', __open2); } catch(e) {}
-      setTimeout(__open2, 80);
-    }
+	    var toOpen = focusLayer || firstLayer;
+	    if (toOpen) {
+	      // Same issue as above: if current time doesn't change, 'timeload' may not fire.
+	      // So we attempt both: a one-shot 'timeload' and a short fallback timeout.
+	      var __open2 = function(){
+	        try { if (toOpen.getLatLng) focusLatLngKeepingSidebar(toOpen.getLatLng(), Math.max(map.getZoom ? map.getZoom() : 13, 13)); } catch(e0) {}
+	        try { toOpen.openPopup(); } catch(e) {}
+	      };
+	      try { map.timeDimension && map.timeDimension.once('timeload', __open2); } catch(e) {}
+	      setTimeout(__open2, 80);
+	    }
   } catch(e) {}
 
   // Update the sidebar info box for this place
@@ -2650,28 +2732,32 @@ function renderPlaceInfoForSelected() {
 
 function handleSidebarReset(ev) {
   if (ev) { try { ev.preventDefault(); ev.stopPropagation(); } catch(e) {} }
-  // Hard reset: mode / time / layer state can drift after several interactions.
-  // Use a hard reload, bypassing any stale hash / transient UI state.
-  try {
-    var url = window.location.pathname + window.location.search;
-    window.location.replace(url);
-    return;
-  } catch(e) {}
-  try { window.location.reload(); return; } catch(e2) {}
-
+  var wasInStoryMode = !!selectedSiteName;
   selectedSiteName = null;
   selectedSiteLabel = null;
   selectedFocusUid = null;
   lastAutoSearchSelectionKey = '';
   placeSearchTermLower = '';
-  sidebarOpenCategories = {};
   try { if (placeSearchInputEl) placeSearchInputEl.value = ''; } catch(e3) {}
+
+  if (!wasInStoryMode) {
+    selectedAffiliationsLower = [];
+    activeAffiliationsLower = affiliationsLowerAll.slice();
+  }
+  sidebarOpenCategories = {};
+
   try { if (placeInfoEl) { placeInfoEl.hidden = true; placeInfoEl.innerHTML = ''; } } catch(e4) {}
+  try { if (placesListEl) placesListEl.scrollTop = 0; } catch(e4b) {}
   try { clearSpiderfy(); } catch(e5) {}
   try { clearStoryMovementLayer(); } catch(e6) {}
   try { clearPopupConnector(); } catch(e7) {}
-  try { rebuildOverlaysAndSearch(); } catch(e8) {}
-  try { updateSidebarList(); } catch(e9) {}
+  try { if (typeof window.refreshCommunityControl === 'function') window.refreshCommunityControl(); } catch(e8) {}
+  try { rebuildOverlaysAndSearch(); } catch(e9) {}
+  try { updateSidebarList(); } catch(e10) {}
+  setTimeout(function(){
+    try { if (placesListEl) placesListEl.scrollTop = 0; } catch(e11) {}
+    try { fitAllSitesKeepingSidebar(); } catch(e12) {}
+  }, 120);
 }
 if (btnClearSelection) {
   try {
@@ -2727,7 +2813,10 @@ function bindSearchAutoPopup() {
     try { if (map._tdControl && map._tdControl._player && map._tdControl._player.isPlaying && map._tdControl._player.isPlaying()) map._tdControl._player.stop(); } catch(err) {}
     var t = Date.parse(String(lyr.feature.properties.start_date || '').trim());
 
-    function openNow(){ try{ lyr.openPopup(); }catch(e){} }
+	    function openNow(){
+	      try { if (lyr.getLatLng) focusLatLngKeepingSidebar(lyr.getLatLng(), 15); } catch(e0) {}
+	      try{ lyr.openPopup(); }catch(e){}
+	    }
 
     if (!isNaN(t)) {
       map.timeDimension.once('timeload', openNow);

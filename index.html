@@ -51,7 +51,7 @@
         </div>
         <div class="sidebar-sub">
           <span id="sidebarCount">0</span>
-          <span id="sidebarHint">Click a place to isolate it</span>
+          <span id="sidebarHint"></span>
         </div>
         <div id="sidebarCategoryFilters" class="sidebar-filters" aria-label="Category filters"></div>
       </div>
@@ -73,12 +73,31 @@
           .toLowerCase();
       }
 
+      function cleanYearValue(v) {
+        var s = String(v == null ? '' : v).trim();
+        if (!s) return '';
+        var lower = s.toLowerCase();
+        if (lower === 'null' || lower === 'nan') return '';
+        return s;
+      }
+
+      function numericYearValue(v, fallback) {
+        var s = cleanYearValue(v);
+        if (!s) return (typeof fallback === 'number') ? fallback : null;
+        var n = Number(s);
+        return isNaN(n) ? ((typeof fallback === 'number') ? fallback : null) : n;
+      }
+
+      function currentTimelineYear() {
+        return new Date().getFullYear();
+      }
+
       // ---- Derive slider interval from data (fallback to 1927–2026) ----
       function getYearRange(arr) {
         var minY = 9999, maxY = 0;
         for (var i = 0; i < arr.length; i++) {
-          var s = Number(arr[i].start_year);
-          var e = Number(arr[i].end_year);
+          var s = numericYearValue(arr[i].start_year);
+          var e = numericYearValue(arr[i].end_year, currentTimelineYear());
           if (!isNaN(s)) minY = Math.min(minY, s);
           if (!isNaN(e)) maxY = Math.max(maxY, e);
         }
@@ -92,6 +111,64 @@
       var endISO = yr.max + "-12-31";
 
       var map = createAndSetUpMapMilano(startISO, endISO);
+
+      function getSidebarOcclusionInsets() {
+        var out = { top: 0, right: 0, bottom: 0, left: 0 };
+        var sidebar = document.getElementById('sidebar');
+        if (!sidebar || !map || !map.getContainer) return out;
+        try {
+          var mapRect = map.getContainer().getBoundingClientRect();
+          var sideRect = sidebar.getBoundingClientRect();
+          if (!mapRect || !sideRect) return out;
+
+          var overlapX = Math.min(mapRect.right, sideRect.right) - Math.max(mapRect.left, sideRect.left);
+          var overlapY = Math.min(mapRect.bottom, sideRect.bottom) - Math.max(mapRect.top, sideRect.top);
+          if (overlapX <= 0 || overlapY <= 0) return out;
+
+          if (sideRect.width >= mapRect.width * 0.75) {
+            out.bottom = Math.round(overlapY);
+            return out;
+          }
+
+          out.right = Math.round(overlapX);
+        } catch (e) {}
+        return out;
+      }
+
+      function getVisibleMapSize() {
+        if (!map || !map.getSize) return null;
+        var size = map.getSize();
+        var insets = getSidebarOcclusionInsets();
+        return L.point(
+          Math.max(160, size.x - insets.left - insets.right),
+          Math.max(160, size.y - insets.top - insets.bottom)
+        );
+      }
+
+      function fitBoundsKeepingSidebar(bounds, extraOptions) {
+        if (!map || !bounds || !bounds.isValid || !bounds.isValid()) return;
+        var insets = getSidebarOcclusionInsets();
+        var opts = {
+          maxZoom: 13,
+          paddingTopLeft: [24 + insets.left, 24 + insets.top],
+          paddingBottomRight: [24 + insets.right, 32 + insets.bottom]
+        };
+        if (extraOptions) {
+          for (var k in extraOptions) opts[k] = extraOptions[k];
+        }
+        map.fitBounds(bounds, opts);
+      }
+
+      function focusLatLngKeepingSidebar(latlng, zoom) {
+        if (!map || !latlng) return;
+        map.setView(latlng, zoom);
+        var insets = getSidebarOcclusionInsets();
+        var dx = Math.round((insets.right - insets.left) / 2);
+        var dy = Math.round((insets.bottom - insets.top) / 2);
+        if (dx || dy) {
+          try { map.panBy([dx, dy], { animate: false }); } catch (e) {}
+        }
+      }
 
       // ---- Build points GeoJSON ----
       var sitesGeojson = buildPointsForSites(milanoSites);
@@ -111,13 +188,7 @@
         });
         if (bb && bb.isValid && bb.isValid()) {
           setTimeout(function(){
-            try {
-              map.fitBounds(bb.pad(0.06), {
-                maxZoom: 13,
-                paddingTopLeft: [24, 24],
-                paddingBottomRight: [360, 32]
-              });
-            } catch(e) {}
+            try { fitBoundsKeepingSidebar(bb.pad(0.06)); } catch(e) {}
           }, 0);
         }
       } catch(e) {}
@@ -138,26 +209,62 @@
       
 
 // ---- Affiliation list (Comunità) ----
+var AFF_NONE_KEY = '(none)';
+var AFFILIATION_ORDER = ['chabad', 'lebanese', 'milanese', 'persian', 'mena', 'postwar', AFF_NONE_KEY];
+
+function noneAffiliationLabel() {
+  return '(none)';
+}
+
+function canonicalAffiliationKey(value) {
+  var raw = String(value == null ? '' : value).trim().toLowerCase();
+  if (!raw || raw === '(nessuna)' || raw === '(none)') return AFF_NONE_KEY;
+  if (raw === 'chabad') return 'chabad';
+  if (raw.indexOf('libanese') >= 0 || raw.indexOf('lebanese') >= 0) return 'lebanese';
+  if (raw.indexOf('milanese') >= 0 || raw.indexOf('milanes') >= 0) return 'milanese';
+  if (raw.indexOf('persian') >= 0 || raw.indexOf('persiana') >= 0) return 'persian';
+  if (raw.indexOf('medio oriente') >= 0 || raw.indexOf('middle eastern') >= 0 || raw.indexOf('north african') >= 0) return 'mena';
+  if (raw.indexOf('dopoguerra') >= 0 || raw.indexOf('postwar') >= 0) return 'postwar';
+  return raw;
+}
+
+function compareAffiliationKeys(a, b) {
+  var ia = AFFILIATION_ORDER.indexOf(a);
+  var ib = AFFILIATION_ORDER.indexOf(b);
+  if (ia === -1 && ib === -1) return String(a).localeCompare(String(b), 'it');
+  if (ia === -1) return 1;
+  if (ib === -1) return -1;
+  return ia - ib;
+}
+
 function getAffiliations(arr) {
   var seen = {};
   var hasNone = false;
   for (var i = 0; i < arr.length; i++) {
     var a = (arr[i].affiliazione || '').toString().trim();
-    if (a) seen[a.toLowerCase()] = a;
-    else hasNone = true;
+    if (!a) {
+      hasNone = true;
+      continue;
+    }
+    var key = canonicalAffiliationKey(a);
+    if (!seen[key]) seen[key] = a;
   }
-  var out = Object.keys(seen).map(function(k){ return seen[k]; });
-  out.sort(function(a,b){ return a.localeCompare(b, 'it'); });
-  if (hasNone) out.unshift('(nessuna)');
-  return out;
+  var keys = Object.keys(seen).sort(compareAffiliationKeys);
+  var labels = keys.map(function(k){ return seen[k]; });
+  if (hasNone) {
+    keys.push(AFF_NONE_KEY);
+    labels.push(noneAffiliationLabel());
+  }
+  return { labels: labels, keys: keys };
 }
 
 var categories = getCategories(milanoSites);
 
 
-var affiliations = getAffiliations(milanoSites);
+var affiliationMeta = getAffiliations(milanoSites);
+var affiliations = affiliationMeta.labels;
 
-var affiliationsLowerAll = affiliations.map(function(x){ return (x || '').toString().trim().toLowerCase(); });
+var affiliationsLowerAll = affiliationMeta.keys;
 // NOTE: Comunità is used for HIGHLIGHTING ONLY (marker outlines).
 // It must not filter which points are shown.
 var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward compatibility (always = all)
@@ -169,28 +276,21 @@ var selectedAffiliationsLower = [];
 // Deterministic outline colours for communities (used as marker borders)
 var AFF_OUTLINE_COLORS = (function(){
   var fixed = {
-    '(nessuna)': '#8e8e8e',
     '(none)': '#8e8e8e',
-    'chabad': '#3da9d9',
-    'libanese community': '#6a4c9c',
-    'comunità libanese': '#6a4c9c',
-    'migrants from middle east and north africa': '#9fbf3b',
-    'migranti dal medio oriente e dal nord africa': '#9fbf3b',
-    'milanese community': '#69c77a',
-    'comunità milanese': '#69c77a',
-    'persian community': '#2448b8',
-    'comunità persiana': '#2448b8',
-    'postwar european refugees': '#4a9370',
-    'profughi europei del dopoguerra': '#4a9370'
+    'chabad': '#06B6D4',
+    'lebanese': '#9333EA',
+    'milanese': '#16A34A',
+    'persian': '#1E3A8A',
+    'mena': '#EC4899',
+    'postwar': '#7F1D1D'
   };
-  var coolFallback = ['#3da9d9','#6a4c9c','#9fbf3b','#69c77a','#2448b8','#4a9370','#5d6d7e','#5bc0be'];
+  var coolFallback = ['#06B6D4','#9333EA','#16A34A','#1E3A8A','#EC4899','#7F1D1D','#5d6d7e','#5bc0be'];
   var m = {};
   for (var i=0;i<affiliationsLowerAll.length;i++){
     var k = affiliationsLowerAll[i];
     m[k] = fixed[k] || coolFallback[i % coolFallback.length];
   }
-  if (!m['(nessuna)']) m['(nessuna)'] = '#8e8e8e';
-  if (!m['(none)']) m['(none)'] = '#8e8e8e';
+  if (!m[AFF_NONE_KEY]) m[AFF_NONE_KEY] = '#8e8e8e';
   return m;
 })();
 
@@ -314,6 +414,7 @@ function bindPopupHtml(feature, layer) {
       // - Clicking a marker in the general view isolates that place and shows its story (all phases).
       // - In story mode, each phase shows its date range as a permanent label above the marker.
       var selectedFocusUid = null;
+      var selectedSiteLabel = null;
 
       function bindFeatureInteractions(feature, layer) {
         var p = (feature && feature.properties) ? feature.properties : {};
@@ -719,7 +820,7 @@ function layoutStoryPhaseLabels() {
   if (!selectedSiteName || !map || !baseGeoJsonLayer) return;
 
   var mapSize = null;
-  try { mapSize = map.getSize(); } catch(e0) { mapSize = null; }
+  try { mapSize = getVisibleMapSize() || map.getSize(); } catch(e0) { mapSize = null; }
 
   var items = [];
   baseGeoJsonLayer.eachLayer(function(layer){
@@ -895,8 +996,10 @@ function storyBoxIntersectionArea(a, b, padX, padY) {
 }
 
 
+var ENABLE_POPUP_CONNECTORS = false;
 var popupConnectorPane = null;
 function ensurePopupConnectorPane() {
+  if (!ENABLE_POPUP_CONNECTORS) return null;
   if (popupConnectorPane && popupConnectorPane.parentNode) return popupConnectorPane;
   if (!map || !map.getContainer) return null;
   var container = map.getContainer();
@@ -911,6 +1014,7 @@ function ensurePopupConnectorPane() {
 }
 
 function clearPopupConnector(layer) {
+  if (!ENABLE_POPUP_CONNECTORS) return;
   var pane = ensurePopupConnectorPane();
   if (!pane) return;
   var targetId = null;
@@ -936,6 +1040,7 @@ function popupAnchorPointForMarker(box, markerPt) {
 }
 
 function updatePopupConnector(layer) {
+  if (!ENABLE_POPUP_CONNECTORS) return;
   if (!layer || !map || !layer.getLatLng || !layer.getPopup) return;
   var popup = null;
   try { popup = layer.getPopup(); } catch(e) { popup = null; }
@@ -983,6 +1088,7 @@ function updatePopupConnector(layer) {
 }
 
 function refreshOpenPopupConnector() {
+  if (!ENABLE_POPUP_CONNECTORS) return;
   if (!map || !baseGeoJsonLayer) return;
   try {
     baseGeoJsonLayer.eachLayer(function(layer){
@@ -1000,7 +1106,7 @@ function applySmartPopupPlacement(layer) {
 
   var pt = map.latLngToContainerPoint(layer.getLatLng());
   var mapSize = null;
-  try { mapSize = map.getSize(); } catch(e0) { mapSize = null; }
+  try { mapSize = getVisibleMapSize() || map.getSize(); } catch(e0) { mapSize = null; }
 
   var popupEl = null;
   try { popupEl = popup.getElement ? popup.getElement() : null; } catch(e1) { popupEl = null; }
@@ -1279,9 +1385,9 @@ function rebuildOverlaysAndSearch() {
         // In story mode keep global range (narrative traversal)
         if (selectedSiteName) return;
         if (!passesActiveFilters(p)) return;
-        var sy = Number(p.start_year);
-        var ey = Number(p.end_year);
-        if (isNaN(sy) || isNaN(ey)) return;
+        var sy = numericYearValue(p.start_year);
+        var ey = numericYearValue(p.end_year, currentTimelineYear());
+        if (sy === null || ey === null) return;
         minY = (minY === null) ? sy : Math.min(minY, sy);
         maxY = (maxY === null) ? ey : Math.max(maxY, ey);
       });
@@ -1290,9 +1396,9 @@ function rebuildOverlaysAndSearch() {
       if (minY === null || maxY === null) {
         (sitesGeojson.features || []).forEach(function(f){
           var p = (f && f.properties) ? f.properties : {};
-          var sy = Number(p.start_year);
-          var ey = Number(p.end_year);
-          if (isNaN(sy) || isNaN(ey)) return;
+          var sy = numericYearValue(p.start_year);
+          var ey = numericYearValue(p.end_year, currentTimelineYear());
+          if (sy === null || ey === null) return;
           minY = (minY === null) ? sy : Math.min(minY, sy);
           maxY = (maxY === null) ? ey : Math.max(maxY, ey);
         });
@@ -1363,7 +1469,7 @@ function rebuildOverlaysAndSearch() {
 
 // Monochrome (B/W) symbolic SVG icons for categories.
 var CATEGORY_SVGS = {
-  'associazione': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14c2-1 3-3 5-3s3 2 5 3" /><path d="M5 12c1-2 2-3 4-3" /><path d="M19 12c-1-2-2-3-4-3" /><path d="M8 15l-2 2" /><path d="M16 15l2 2" /></svg>',
+  'associazione': '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="20" r="6"></circle><path d="M20 46c0-7 5.4-12 12-12s12 5 12 12"></path><circle cx="14" cy="24" r="5"></circle><path d="M4 46c0-6 4.5-10 10-10 2 0 3.8.5 5.4 1.4"></path><circle cx="50" cy="24" r="5"></circle><path d="M60 46c0-6-4.5-10-10-10-2 0-3.8.5-5.4 1.4"></path></svg>',
   'comunitario': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M4.5 20c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M13.5 20c.3-2.3 2-3.7 4-3.7 1.8 0 3.2.9 3.8 3.7"/></svg>',
   'educazione': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 11v5c0 1.5 3 3 5 3s5-1.5 5-3v-5"/><path d="M21 10v6"/></svg>',
   'assistenza': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-9.5-9C.8 8.8 3 6 6 6c1.8 0 3.2 1 4 2 0.8-1 2.2-2 4-2 3 0 5.2 2.8 3.5 6-2.5 4.5-9.5 9-9.5 9z"/></svg>',
@@ -1760,22 +1866,24 @@ function getCurrentYear() {
 
 function yearLabelForFeature(p) {
   if (!p) return '';
-  var sy=String(p.start_year==null?'':p.start_year).trim(); var ey=String(p.end_year==null?'':p.end_year).trim(); if(!ey || ey.toLowerCase()==='null' || ey.toLowerCase()==='nan') return sy ? (sy + '–Today') : ''; return (sy===ey)? sy : (sy + '–' + ey);
+  var sy = cleanYearValue(p.start_year);
+  var ey = cleanYearValue(p.end_year);
+  if (!ey) return sy ? (sy + '–') : '';
+  return (sy === ey) ? sy : (sy + '–' + ey);
 }
 
 function isFeatureActiveAtTime(f, t) {
   var p = (f && f.properties) ? f.properties : {};
   var t0 = p._t0;
   var t1 = p._t1;
-  if (isNaN(t0) || isNaN(t1)) {
-    // fallback to year bounds
-    var y = new Date(t).getFullYear();
-    var ys = Number(p.start_year);
-    var ye = Number(p.end_year);
-    if (!isNaN(ys) && !isNaN(ye)) return (y >= ys && y <= ye);
-    return false;
-  }
-  return (t >= t0 && t <= t1);
+  if (!isNaN(t0) && !isNaN(t1)) return (t >= t0 && t <= t1);
+
+  var y = new Date(t).getFullYear();
+  var ys = numericYearValue(p.start_year);
+  var ye = numericYearValue(p.end_year);
+  if (ys === null) return false;
+  if (ye === null) return (y >= ys);
+  return (y >= ys && y <= ye);
 }
 
 function categoryIsActive(p) {
@@ -1791,9 +1899,7 @@ function affiliationIsActive(p) {
   if (!p) return false;
   if (!Array.isArray(activeAffiliationsLower)) return true;
   var araw = (p.affiliazione || '').toString().trim();
-  var key = araw ? araw.toLowerCase() : '(nessuna)';
-  // normalise "(nessuna)" sentinel
-  if (!araw) key = '(nessuna)';
+  var key = canonicalAffiliationKey(araw || AFF_NONE_KEY);
   return activeAffiliationsLower.indexOf(key) !== -1;
 }
 
@@ -1809,11 +1915,11 @@ function catColorFor(p) {
 function affKeysFor(p) {
   var raw = (p && p.affiliazione != null) ? String(p.affiliazione) : '';
   raw = raw.trim();
-  if (!raw) return ['(nessuna)'];
+  if (!raw) return [AFF_NONE_KEY];
   // Allow multiple affiliations in one cell (e.g., "Persiani; Libanesi")
   var parts = raw.split(/[;,\/|\n]+/).map(function(s){ return String(s).trim(); }).filter(function(s){ return !!s; });
-  if (!parts.length) return ['(nessuna)'];
-  return parts.map(function(s){ return s.toLowerCase(); });
+  if (!parts.length) return [AFF_NONE_KEY];
+  return parts.map(function(s){ return canonicalAffiliationKey(s); });
 }
 
 function affKeyFor(p) {
@@ -1999,8 +2105,8 @@ function spiderfyStack(originLatLng, key, features) {
       }
     } catch(e) {}
     var rings = present.length ? ringsCssForSelectedKeys(present) : '';
-    var m = L.marker(ll, { icon: makeCategoryIcon((p.categoria || p.category || catKey || ''), catCol, 20, rings), riseOnHover: true });
-try { bindPopupHtml(features[i], m); } catch(e) {}
+    var m = L.marker(ll, { icon: makeCategoryIcon((p.categoria || p.category || catKey || ''), catCol, 24, rings), riseOnHover: true });
+    try { bindPopupHtml(features[i], m); } catch(e) {}
 
     // Clicking one of the spiderfied points: open its popup.
     // IMPORTANT: stop propagation so the map click handler doesn't immediately clear spiderfy.
@@ -2014,6 +2120,7 @@ try { bindPopupHtml(features[i], m); } catch(e) {}
           L.DomEvent.stop(e);
         } catch(err) {}
         try { this.openPopup(); } catch(err2) {}
+        try { selectPlaceFromFeature(feature); } catch(err3) {}
       };
     })(features[i]));
 
@@ -2161,7 +2268,7 @@ function updateOverlapStyles() {
 }
 
 
-var projectIntroText = 'Open a category to browse the places included in the dataset. Select a place to isolate it on the map and follow its locations over time, including moves, continuity and changes across the city. Use the timeline controls and the year display to move through the chronology, and use the community menu to highlight places connected to specific groups.';
+var projectIntroText = 'Open a category to browse the places included in the map. Select a place from the list or directly on the map to isolate it and follow its locations over time, including moves, continuity and changes across the city. Use the timeline controls and the year display to move through the chronology, and use the "Institution established by" menu to highlight places connected to specific groups.';
 var _lastSidebarTapTs = 0;
 function bindSidebarTap(el, handler) {
   if (!el || !handler) return;
@@ -2191,7 +2298,7 @@ function updateSidebarList() {
 
   if (sidebarTitleEl) {
     sidebarTitleEl.innerHTML = selectedSiteName
-      ? ('History: <span style="font-weight:700">' + String(selectedSiteName) + '</span> — <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>')
+      ? ('<span style="font-weight:700">' + String(selectedSiteLabel || selectedSiteName || '') + '</span> — <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>')
       : ('Jewish Institutions in Milan<br>year <span id="sidebarYear">' + (y !== null ? y : '—') + '</span>');
     // Re-bind sidebarYearEl if we replaced the innerHTML
     sidebarYearEl = document.getElementById('sidebarYear');
@@ -2261,7 +2368,7 @@ function updateSidebarList() {
             if (l && l.feature && l.feature.properties && String(l.feature.properties.uid) === String(p.uid)) targetLayer = l;
           });
           if (targetLayer) {
-            map.setView(targetLayer.getLatLng(), 15);
+            focusLatLngKeepingSidebar(targetLayer.getLatLng(), 15);
             // If the time doesn't actually change, Leaflet.TimeDimension may not emit a new 'timeload'.
             // So we register a one-shot handler *and* an immediate fallback.
             var __open = function(){ try { targetLayer.openPopup(); } catch(e) {} };
@@ -2283,7 +2390,7 @@ function updateSidebarList() {
     return;
   }
 
-  // NORMAL MODE: list only the places active in the current year \(respecting category filter\)\n  // NORMAL MODE: list ALL places in the dataset, grouped by category.
+  // NORMAL MODE: list ALL places in the dataset, grouped by category.
   // (No time filtering here: the list is the complete index; the map is filtered by the timeline.)
   var byCategory = {};
   (sitesGeojson.features || []).forEach(function(f){
@@ -2313,7 +2420,7 @@ function updateSidebarList() {
   catNames.forEach(function(cn){ totalPlaces += Object.keys(byCategory[cn] || {}).length; });
 
   var _isFiltered = (placeSearchTermLower && placeSearchTermLower.length);
-  if (sidebarCountEl) sidebarCountEl.textContent = totalPlaces + (_isFiltered ? ' filtered places' : ' places (dataset)');
+  if (sidebarCountEl) sidebarCountEl.textContent = totalPlaces + (_isFiltered ? ' filtered places' : ' places');
   placesListEl.innerHTML = '';
 
 
@@ -2431,6 +2538,7 @@ function selectPlaceByName(name, focusUid) {
   if (!name) return;
 
   selectedSiteName = normSiteName(name);
+  selectedSiteLabel = String(name || '').trim();
   selectedFocusUid = (typeof focusUid !== 'undefined' && focusUid !== null) ? String(focusUid) : null;
 
   // Ensure temporal layer is visible
@@ -2473,9 +2581,9 @@ function selectPlaceByName(name, focusUid) {
     });
 
     if (bounds.length) {
-      map.fitBounds(L.latLngBounds(bounds).pad(0.25));
+      fitBoundsKeepingSidebar(L.latLngBounds(bounds).pad(0.25), { maxZoom: 15 });
     } else if (firstLayer) {
-      map.setView(firstLayer.getLatLng(), 15);
+      focusLatLngKeepingSidebar(firstLayer.getLatLng(), 15);
     }
 
     var toOpen = focusLayer || firstLayer;
@@ -2520,19 +2628,21 @@ function renderPlaceInfoForSelected() {
   var srcInfo = safeText(getPopupSourceInfo(rep));
 
   var minY = null, maxY = null;
+  var hasOpenEndedPhase = false;
   phases.forEach(function(f){
     var p = f.properties || {};
-    var ys = Number(p.start_year);
-    var ye = Number(p.end_year);
-    if (!isNaN(ys)) minY = (minY === null) ? ys : Math.min(minY, ys);
-    if (!isNaN(ye)) maxY = (maxY === null) ? ye : Math.max(maxY, ye);
+    var ys = numericYearValue(p.start_year);
+    var ye = numericYearValue(p.end_year);
+    if (ys !== null) minY = (minY === null) ? ys : Math.min(minY, ys);
+    if (ye !== null) maxY = (maxY === null) ? ye : Math.max(maxY, ye);
+    else hasOpenEndedPhase = true;
   });
   var years = (minY !== null && maxY !== null)
-    ? ((minY === maxY) ? String(minY) : (minY + '–' + maxY))
-    : '';
+    ? (hasOpenEndedPhase ? (minY + '–') : ((minY === maxY) ? String(minY) : (minY + '–' + maxY)))
+    : (minY !== null && hasOpenEndedPhase ? (minY + '–') : '');
 
   var html = ''
-    + '<div class="place-info-title">' + safeText(selectedSiteName) + '</div>'
+    + '<div class="place-info-title">' + safeText((rep && rep.sito) || selectedSiteLabel || selectedSiteName) + '</div>'
     + '<div class="place-info-meta">'
     +   (cat ? ('<span class="pill"><span class="pill-ico" style="color:' + catColorFor({categoria:cat}) + '">' + catIcon(cat) + '</span>' + cat + '</span>') : '')
     +   (years ? ('<span class="pill">' + years + '</span>') : '')
@@ -2559,6 +2669,7 @@ function handleSidebarReset(ev) {
   try { window.location.reload(); return; } catch(e2) {}
 
   selectedSiteName = null;
+  selectedSiteLabel = null;
   selectedFocusUid = null;
   lastAutoSearchSelectionKey = '';
   placeSearchTermLower = '';

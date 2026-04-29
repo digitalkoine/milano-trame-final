@@ -391,28 +391,28 @@
 }
 
 .move-arrow {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(17, 17, 17, 0.72);
+  color: rgba(17, 17, 17, 0.48);
   transform-origin: 50% 50%;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
+  filter: drop-shadow(0 1px 1px rgba(255,255,255,0.75));
   animation: arrow-pulse 1.6s ease-in-out infinite;
   will-change: transform, opacity;
 }
 
 .move-arrow svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   display: block;
   overflow: visible;
 }
 
 @keyframes arrow-pulse {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 0.95; }
+  0%, 100% { opacity: 0.38; }
+  50% { opacity: 0.68; }
 }
 
 
@@ -466,27 +466,28 @@
 .icon-only-marker {
   width: var(--sz, 32px);
   height: var(--sz, 32px);
-  /* No "badge" background: keep the glyph floating directly on the basemap. */
-  background: transparent;
+  background: rgba(255,252,248,0.94);
+  border: 2px solid rgba(255,255,255,0.98);
   border-radius: 999px; /* rings look nicer as circles */
-  /* Comunità rings only (no default shadow box) */
-  box-shadow: var(--rings, 0 0 0 0 transparent);
+  box-shadow: var(--rings, 0 0 0 0 transparent), 0 2px 8px rgba(0,0,0,0.16);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .icon-only-marker__icon {
-  /* Keep the icon clean: no white halo / contour. */
-  filter: saturate(1.2) contrast(1.02);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: none;
 }
 
 .icon-only-marker__icon svg {
-  width: 94%;
-  height: 94%;
+  width: 68%;
+  height: 68%;
   stroke: currentColor;
-  fill: none;
-  stroke-width: 3.4; /* bolder glyphs */
+  fill: none !important;
+  stroke-width: 2.7;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1303,7 +1304,14 @@ html, body, input, button, select, textarea,
 .pill-ico,
 #sidebar .filter-icon svg {
   color: #f17e5a !important;
-  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+.icon-only-marker__icon {
+  fill: none !important;
+}
+.icon-only-marker__icon svg,
+.icon-only-marker__icon svg * {
+  fill: none !important;
   stroke: currentColor !important;
 }
 #sidebar .filter-icon svg circle,

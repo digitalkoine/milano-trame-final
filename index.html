@@ -588,7 +588,7 @@ function buildLayers(selectedCategoriesLower, selectedAffiliationsLower) {
           }
         } catch(e) {}
         var rings = present.length ? ringsCssForSelectedKeys(present) : '';
-        return L.marker(latlng, { icon: makeStoryIconForProperties(p, 32, rings) });
+        return L.marker(latlng, { icon: makeStoryIconForProperties(p, 30, rings) });
       }
       // Main chronology: base style will be refined by updateOverlapStyles()
       return L.marker(latlng, { icon: makeCountIcon(1, PAL_LIGHT, 20, '') });
@@ -1419,28 +1419,41 @@ function interpolateLatLng(a, b, t) {
   );
 }
 
+function ensureStoryMovementPane() {
+  if (!map || !map.createPane || !map.getPane) return null;
+  var pane = map.getPane('storyMovementPane');
+  if (!pane) {
+    pane = map.createPane('storyMovementPane');
+    pane.style.zIndex = 430;
+    pane.style.pointerEvents = 'none';
+  }
+  return 'storyMovementPane';
+}
+
 function renderStoryMovement() {
   clearStoryMovementLayer();
   if (!selectedSiteName || !map) return;
   if (!Array.isArray(storyPathLatLngs) || storyPathLatLngs.length < 2) return;
 
+  var movementPane = ensureStoryMovementPane();
   storyMovementLayer = L.layerGroup();
 
   // Animated dashed line to suggest movement
   var line = L.polyline(storyPathLatLngs, {
-    color: '#111',
-    weight: 2,
-    opacity: 0.55,
-    dashArray: '6 10',
+    color: '#3f3f3f',
+    weight: 1.6,
+    opacity: 0.38,
+    dashArray: '5 12',
     lineCap: 'round',
-    className: 'movement-line'
+    className: 'movement-line',
+    pane: movementPane || undefined
   });
   storyMovementLayer.addLayer(line);
 
   // Three direction arrows per segment, spaced away from the endpoints.
   var arrowFractions = [0.24, 0.50, 0.76];
   var arrowSvg = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-    + '<path d="M4 12h10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>'
+    + '<path d="M4 12h10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>'
     + '<path d="M12 6.8L20 12l-8 5.2z" fill="currentColor"></path>'
     + '</svg>';
 
@@ -1453,10 +1466,10 @@ function renderStoryMovement() {
       var icon = L.divIcon({
         className: 'movement-arrow-icon',
         html: '<div class="move-arrow" style="transform: rotate(' + ang + 'deg)">' + arrowSvg + '</div>',
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
+        iconSize: [16, 16],
+        iconAnchor: [8, 8]
       });
-      storyMovementLayer.addLayer(L.marker(ll, { icon: icon, interactive: false, keyboard: false }));
+      storyMovementLayer.addLayer(L.marker(ll, { icon: icon, interactive: false, keyboard: false, pane: movementPane || undefined }));
     }
   }
 
@@ -1487,7 +1500,7 @@ function updateStoryHighlight() {
     var rings = present.length ? ringsCssForSelectedKeys(present) : '';
     var combined = rings || '';
 
-    var size = active ? 34 : 26;
+    var size = active ? 30 : 24;
     try { layer.setIcon(makeStoryIconForProperties(p, size, combined)); } catch(e3) {}
     try { layer.setOpacity(active ? 1 : 0.55); } catch(e4) {}
   });
@@ -2136,12 +2149,14 @@ function mixHex(hexA, hexB, t) {
 // We keep the marker body untouched; rings are only shown when one or more Comunità are selected.
 function ringsCssForColors(colors) {
   if (!colors || !colors.length) return '0 0 0 0 transparent';
-  var base = 3; // ring thickness
-  var gap  = 1; // spacing between rings
-  var out = [];
+  // Add a pale separator so community rings do not visually merge with the glyph.
+  var out = ['0 0 0 3px rgba(255,252,248,0.96)'];
   for (var i = 0; i < colors.length; i++) {
-    var w = base * (i + 1) + gap * i; // 3,7,11,...
+    var w = 5 + (i * 4); // 5, 9, 13...
     out.push('0 0 0 ' + w + 'px ' + colors[i]);
+    if (i < colors.length - 1) {
+      out.push('0 0 0 ' + (w + 2) + 'px rgba(255,252,248,0.96)');
+    }
   }
   return out.join(', ');
 }

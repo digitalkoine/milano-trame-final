@@ -524,7 +524,7 @@ function bindPopupHtml(feature, layer) {
 	            try { renderPlaceInfoForSelected(); } catch(err) {}
 	            try { focusLatLngKeepingSidebar(layer.getLatLng(), Math.max(map.getZoom ? map.getZoom() : 13, 13)); } catch(err0) {}
 	            try { layer.openPopup(); } catch(err2) {}
-	            startTimelinePlayer(120);
+	            stopTimelinePlayer();
 	            try { if (e) L.DomEvent.stop(e); } catch(err3) {}
 	          });
         }
@@ -1516,16 +1516,18 @@ try {
   });
 } catch(e) {}
 
-function rebuildOverlaysAndSearch() {
+function rebuildOverlaysAndSearch(options) {
+  options = options || {};
+  var preserveAutoplay = options.preserveAutoplay !== false;
   // Preserve whether the layer is currently visible
   var wasVisible = map.hasLayer(timeSitesLayer);
 
   // Preserve whether the player was running
   var wasPlaying = false;
-  try { wasPlaying = !!(map && map._tdPlayer && map._tdPlayer._playing); } catch(e) {}
+  try { wasPlaying = preserveAutoplay && isTimelinePlayerRunning(); } catch(e) {}
 
   // Stop player while we swap layers (prevents TimeDimension desync)
-  try { if (map && map._tdPlayer && typeof map._tdPlayer.stop === 'function') map._tdPlayer.stop(); } catch(e) {}
+  try { stopTimelinePlayer(); } catch(e) {}
 
   // Remove old layer/control/search safely
   try { if (layerControl) map.removeControl(layerControl); } catch(e) {}
@@ -2573,7 +2575,7 @@ function updateSidebarList() {
       item.appendChild(meta);
 
       function activatePhase(){
-        // Jump to this phase, open its popup, and keep the chronology running.
+        // Jump to this phase, open its popup, and keep the chronology paused in detail view.
         selectedFocusUid = String(p.uid || '');
         var t0 = Date.parse(String(p.start_date || '').trim());
         if (!isNaN(t0)) map.timeDimension.setCurrentTime(t0);
@@ -2592,7 +2594,7 @@ function updateSidebarList() {
             setTimeout(__open, 60);
           }
         } catch(e) {}
-        startTimelinePlayer(120);
+        stopTimelinePlayer();
       }
 
       item.addEventListener('click', activatePhase);
@@ -2754,6 +2756,9 @@ function updateSidebarList() {
 function selectPlaceByName(name, focusUid) {
   if (!name) return;
 
+  // Detail/story mode should stay fixed until the user returns to chronological view.
+  stopTimelinePlayer();
+
   selectedSiteName = normSiteName(name);
   selectedSiteLabel = String(name || '').trim();
   selectedFocusUid = (typeof focusUid !== 'undefined' && focusUid !== null) ? String(focusUid) : null;
@@ -2773,7 +2778,7 @@ function selectPlaceByName(name, focusUid) {
   }
 
   // Rebuild the layer stack so the map shows ONLY this place (all its phases) across time
-  rebuildOverlaysAndSearch();
+  rebuildOverlaysAndSearch({ preserveAutoplay: false });
 
   // Fit to all phases and open the focused popup (or the first one)
   try {
@@ -2828,7 +2833,7 @@ function selectPlaceByName(name, focusUid) {
   try { renderPlaceInfoForSelected(); } catch(e) {}
 
   updateSidebarList();
-  startTimelinePlayer(180);
+  stopTimelinePlayer();
   setTimeout(function(){ try { if (selectedSiteName) layoutStoryPhaseLabels(); } catch(e) {} }, 80);
 }
 

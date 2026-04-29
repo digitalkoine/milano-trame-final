@@ -219,7 +219,6 @@
 
       function panOpenPopupIntoVisibleMap(layer) {
         if (!map || !layer || !layer.getPopup) return;
-        if (selectedSiteName) return;
         var popup = null;
         try { popup = layer.getPopup(); } catch(e0) { popup = null; }
         if (!popup || !popup.getElement) return;
@@ -230,7 +229,7 @@
         var popRect = el.getBoundingClientRect();
         var insets = getSidebarOcclusionInsets();
         var size = map.getSize();
-        var pad = 24;
+        var pad = 44;
         var visible = {
           left: insets.left + pad,
           top: insets.top + pad,
@@ -1117,38 +1116,38 @@ function storyPopupPreferredSides(pt, clusterCenter) {
 function storyPopupCandidateOffsets(width, height, pt, clusterCenter) {
   var halfW = Math.round(width / 2);
   var halfH = Math.round(height / 2);
-  var near = 38;
-  var mid = 58;
-  var far = 82;
-  var diag = 28;
+  var near = 16;
+  var mid = 28;
+  var far = 44;
+  var diag = 14;
   var bySide = {
     right: [
-      { direction: 'right', offset: L.point(halfW + near, halfH - 12), score: 0 },
-      { direction: 'right', offset: L.point(halfW + mid, halfH - 12), score: 3 },
-      { direction: 'right', offset: L.point(halfW + far, halfH - 12), score: 7 },
-      { direction: 'right', offset: L.point(halfW + near + diag, 2), score: 5 },
-      { direction: 'right', offset: L.point(halfW + near + diag, height - 26), score: 6 }
+      { direction: 'right', offset: L.point(halfW + near, halfH - 10), score: 0 },
+      { direction: 'right', offset: L.point(halfW + mid, halfH - 10), score: 12 },
+      { direction: 'right', offset: L.point(halfW + far, halfH - 10), score: 28 },
+      { direction: 'right', offset: L.point(halfW + near + diag, 8), score: 18 },
+      { direction: 'right', offset: L.point(halfW + near + diag, height - 22), score: 20 }
     ],
     left: [
-      { direction: 'left', offset: L.point(-halfW - near, halfH - 12), score: 0 },
-      { direction: 'left', offset: L.point(-halfW - mid, halfH - 12), score: 3 },
-      { direction: 'left', offset: L.point(-halfW - far, halfH - 12), score: 7 },
-      { direction: 'left', offset: L.point(-halfW - near - diag, 2), score: 5 },
-      { direction: 'left', offset: L.point(-halfW - near - diag, height - 26), score: 6 }
+      { direction: 'left', offset: L.point(-halfW - near, halfH - 10), score: 0 },
+      { direction: 'left', offset: L.point(-halfW - mid, halfH - 10), score: 12 },
+      { direction: 'left', offset: L.point(-halfW - far, halfH - 10), score: 28 },
+      { direction: 'left', offset: L.point(-halfW - near - diag, 8), score: 18 },
+      { direction: 'left', offset: L.point(-halfW - near - diag, height - 22), score: 20 }
     ],
     top: [
-      { direction: 'top', offset: L.point(0, -18), score: 0 },
-      { direction: 'top', offset: L.point(-(halfW * 0.4), -18), score: 4 },
-      { direction: 'top', offset: L.point((halfW * 0.4), -18), score: 4 },
-      { direction: 'top', offset: L.point(-(halfW * 0.7), -20), score: 8 },
-      { direction: 'top', offset: L.point((halfW * 0.7), -20), score: 8 }
+      { direction: 'top', offset: L.point(0, -12), score: 0 },
+      { direction: 'top', offset: L.point(-(halfW * 0.24), -12), score: 14 },
+      { direction: 'top', offset: L.point((halfW * 0.24), -12), score: 14 },
+      { direction: 'top', offset: L.point(-(halfW * 0.42), -14), score: 30 },
+      { direction: 'top', offset: L.point((halfW * 0.42), -14), score: 30 }
     ],
     bottom: [
-      { direction: 'bottom', offset: L.point(0, height + 28), score: 0 },
-      { direction: 'bottom', offset: L.point(-(halfW * 0.4), height + 30), score: 5 },
-      { direction: 'bottom', offset: L.point((halfW * 0.4), height + 30), score: 5 },
-      { direction: 'bottom', offset: L.point(-(halfW * 0.7), height + 34), score: 10 },
-      { direction: 'bottom', offset: L.point((halfW * 0.7), height + 34), score: 10 }
+      { direction: 'bottom', offset: L.point(0, height + 18), score: 0 },
+      { direction: 'bottom', offset: L.point(-(halfW * 0.24), height + 20), score: 16 },
+      { direction: 'bottom', offset: L.point((halfW * 0.24), height + 20), score: 16 },
+      { direction: 'bottom', offset: L.point(-(halfW * 0.42), height + 22), score: 34 },
+      { direction: 'bottom', offset: L.point((halfW * 0.42), height + 22), score: 34 }
     ]
   };
 
@@ -1351,10 +1350,15 @@ function applySmartPopupPlacement(layer) {
   }
 
   var candidates = storyPopupCandidateOffsets(width, height, pt, clusterCenter);
+  var primaryDirection = candidates.length ? candidates[0].direction : null;
   var best = null;
+  var scoredCandidates = [];
+  var popupViewportPad = 44;
+  var ownMarkerBox = storyMarkerBoxForLayer(layer, pt);
   candidates.forEach(function(candidate){
     var box = storyPopupBoxForCandidate(pt, width, height, candidate.offset);
-    var viewportPenalty = storyViewportPenalty(box, mapSize, 16) * 180;
+    var viewportOverflow = storyViewportPenalty(box, mapSize, popupViewportPad);
+    var viewportPenalty = viewportOverflow * 4000;
     var overlapMarkers = 0;
     var overlapLabels = 0;
     var overlapMarkerArea = 0;
@@ -1369,7 +1373,7 @@ function applySmartPopupPlacement(layer) {
     }
     var linePenalty = storyLabelLinePenalty(box, lineSegments);
     var dist = Math.sqrt(Math.pow(((box.x1 + box.x2) / 2) - pt.x, 2) + Math.pow(((box.y1 + box.y2) / 2) - pt.y, 2));
-    var distancePenalty = Math.max(0, dist - 156) * 9;
+    var distancePenalty = Math.max(0, dist - 112) * 18;
     var ownLabelPenalty = 0;
     try {
       var tipOwn = layer.getTooltip ? layer.getTooltip() : null;
@@ -1382,8 +1386,23 @@ function applySmartPopupPlacement(layer) {
     } catch(eOwn) {}
     var markerPenalty = overlapMarkers * 24000 + overlapMarkerArea * 6;
     var labelPenalty = overlapLabels * 30000 + overlapLabelArea * 7;
-    candidate.totalPenalty = viewportPenalty + markerPenalty + labelPenalty + linePenalty * 12000 + ownLabelPenalty + distancePenalty + candidate.score;
+    var ownMarkerPenalty = storyBoxIntersectionArea(box, ownMarkerBox, 18, 18) > 0 ? 90000 : 0;
+    candidate.totalPenalty = viewportPenalty + markerPenalty + labelPenalty + linePenalty * 22000 + ownLabelPenalty + ownMarkerPenalty + distancePenalty + candidate.score;
     candidate.box = box;
+    candidate.overlapMarkers = overlapMarkers;
+    candidate.ownMarkerPenalty = ownMarkerPenalty;
+    candidate.viewportOverflow = viewportOverflow;
+    scoredCandidates.push(candidate);
+  });
+
+  var primaryVisibleCandidates = scoredCandidates.filter(function(candidate){
+    return candidate.viewportOverflow <= 0.5 && candidate.direction === primaryDirection && candidate.overlapMarkers === 0 && !candidate.ownMarkerPenalty;
+  });
+  var visibleCandidates = scoredCandidates.filter(function(candidate){
+    return candidate.viewportOverflow <= 0.5 && !candidate.ownMarkerPenalty;
+  });
+  var candidatePool = primaryVisibleCandidates.length ? primaryVisibleCandidates : (visibleCandidates.length ? visibleCandidates : scoredCandidates);
+  candidatePool.forEach(function(candidate){
     if (!best || candidate.totalPenalty < best.totalPenalty) best = candidate;
   });
 

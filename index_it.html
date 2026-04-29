@@ -356,6 +356,34 @@ var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward
 // Comunità selection state. Empty = no highlight; otherwise it outlines matching visible points.
 var selectedAffiliationsLower = [];
 
+function syncCommunitySelectionState() {
+  if (!Array.isArray(selectedAffiliationsLower)) selectedAffiliationsLower = [];
+  activeAffiliationsLower = selectedAffiliationsLower.length
+    ? selectedAffiliationsLower.slice()
+    : affiliationsLowerAll.slice();
+  try {
+    window.selectedAffiliationsLower = selectedAffiliationsLower;
+    window.activeAffiliationsLower = activeAffiliationsLower;
+  } catch(e) {}
+}
+syncCommunitySelectionState();
+
+function repaintCommunityHighlights() {
+  function repaintNow() {
+    try {
+      if (selectedSiteName) {
+        updateStoryHighlight();
+        layoutStoryPhaseLabels();
+      } else {
+        updateOverlapStyles();
+      }
+    } catch(e) {}
+    try { if (typeof window.refreshCommunityControl === 'function') window.refreshCommunityControl(); } catch(e2) {}
+  }
+  repaintNow();
+  setTimeout(repaintNow, 80);
+}
+
 // Deterministic outline colours for communities (used as marker borders)
 var AFF_OUTLINE_COLORS = (function(){
   var fixed = {
@@ -530,7 +558,7 @@ function bindPopupHtml(feature, layer) {
         }
       }
 
-function buildLayers(selectedCategoriesLower, selectedAffiliationsLower) {
+function buildLayers(selectedCategoriesLower, selectedAffiliationsFilterLower) {
   // selectedCategoriesLower: array of lower-cased categories to show.
   // If null/undefined -> show all. If empty -> show none.
   var selected = Array.isArray(selectedCategoriesLower)
@@ -573,8 +601,8 @@ function buildLayers(selectedCategoriesLower, selectedAffiliationsLower) {
       if (selectedSiteName) {
         var present = [];
         try {
-          for (var si = 0; si < (window.selectedAffiliationsLower || []).length; si++) {
-            var ksel = (window.selectedAffiliationsLower || [])[si];
+          for (var si = 0; si < (selectedAffiliationsLower || []).length; si++) {
+            var ksel = (selectedAffiliationsLower || [])[si];
             if (featureHasSelectedAff(p, ksel)) present.push(ksel);
           }
         } catch(e) {}
@@ -1830,13 +1858,27 @@ function updateToggleCount() {
     try { L.DomEvent.disableClickPropagation(container); } catch(err) {}
     try { L.DomEvent.disableScrollPropagation(container); } catch(err) {}
 
-    // Important on iPad/Safari: keep a single activation path for the dropdown
-    // and for its buttons, otherwise taps may be swallowed or require multiple tries.
+    // Keep both pointer and click paths, with a guard against double activation.
+    // This makes the control recover after timeline start/stop and browser resize cycles.
+    var lastToggleActivationTs = 0;
+    function onTogglePointer(e) {
+      lastToggleActivationTs = Date.now();
+      togglePanel(e);
+    }
+    function onToggleClick(e) {
+      if ((Date.now() - lastToggleActivationTs) < 350) {
+        try { L.DomEvent.stop(e); } catch(err) {}
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      togglePanel(e);
+    }
     if (window.PointerEvent) {
-      btn.addEventListener('pointerdown', togglePanel, { passive: false });
+      btn.addEventListener('pointerdown', onTogglePointer, { passive: false });
+      btn.addEventListener('click', onToggleClick);
     } else {
-      btn.addEventListener('touchstart', togglePanel, { passive: false });
-      btn.addEventListener('click', togglePanel);
+      btn.addEventListener('touchstart', onTogglePointer, { passive: false });
+      btn.addEventListener('click', onToggleClick);
     }
 
     // Close dropdown when tapping outside, but ignore the same interaction that
@@ -1882,21 +1924,32 @@ function updateToggleCount() {
 	            selectedAffiliationsLower.sort(function(a,b){ return affiliationsLowerAll.indexOf(a) - affiliationsLowerAll.indexOf(b); });
 	          } catch(eSort) {}
 	        }
-	        activeAffiliationsLower = selectedAffiliationsLower.length
-	          ? selectedAffiliationsLower.slice()
-	          : affiliationsLowerAll.slice();
+	        syncCommunitySelectionState();
 	        updateAffButtons();
 	        updateToggleCount();
 	        try { clearSpiderfy(); } catch(e1) {}
-	        try { updateOverlapStyles(); } catch(e2) {}
-	        try { if (selectedSiteName) updateStoryHighlight(); } catch(e3) {}
+	        try { repaintCommunityHighlights(); } catch(e2) {}
 	        closePanel();
 	      }
+      var lastAffActivationTs = 0;
+      function onAffPointer(e) {
+        lastAffActivationTs = Date.now();
+        onAffActivate(e);
+      }
+      function onAffClick(e) {
+        if ((Date.now() - lastAffActivationTs) < 350) {
+          try { L.DomEvent.stop(e); } catch(err) {}
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        onAffActivate(e);
+      }
       if (window.PointerEvent) {
-        b.addEventListener('pointerdown', onAffActivate, { passive: false });
+        b.addEventListener('pointerdown', onAffPointer, { passive: false });
+        b.addEventListener('click', onAffClick);
       } else {
-        b.addEventListener('touchstart', onAffActivate, { passive: false });
-        b.addEventListener('click', onAffActivate);
+        b.addEventListener('touchstart', onAffPointer, { passive: false });
+        b.addEventListener('click', onAffClick);
       }
 
       return b;
@@ -1984,7 +2037,7 @@ function mountTopRightLangCommunity() {
   var commEl = topRight.querySelector('.community-control');
   if (!commEl) return;
 
-  var commCtrl = commEl.closest('.leaflet-control') || commEl;
+  var commCtrl = commEl;
 
   var row = topRight.querySelector('.topright-lang-community');
   if (!row) {
@@ -1992,8 +2045,12 @@ function mountTopRightLangCommunity() {
     row.className = 'leaflet-control topright-lang-community';
   }
 
-  row.innerHTML = '';
-  row.appendChild(commCtrl);
+  Array.prototype.slice.call(row.children).forEach(function(child){
+    if (child !== commCtrl && !child.classList.contains('language-control')) {
+      try { row.removeChild(child); } catch(e) {}
+    }
+  });
+  if (commCtrl.parentElement !== row) row.appendChild(commCtrl);
 
   var header = topRight.querySelector('.topright-timeyear');
   if (row.parentElement !== topRight) {
@@ -2419,8 +2476,8 @@ function updateOverlapStyles() {
         // at least one feature of the selected affiliation at the current time/coordinate.
         var present = [];
         try {
-          for (var si = 0; si < (window.selectedAffiliationsLower || []).length; si++) {
-            var ksel = (window.selectedAffiliationsLower || [])[si];
+          for (var si = 0; si < (selectedAffiliationsLower || []).length; si++) {
+            var ksel = (selectedAffiliationsLower || [])[si];
             var hasAff = false;
             for (var gi = 0; gi < group.length; gi++) {
               var fp = (group[gi] && group[gi].feature) ? (group[gi].feature.properties || {}) : {};
@@ -2895,8 +2952,8 @@ function handleSidebarReset(ev) {
 
   if (!wasInStoryMode) {
     selectedAffiliationsLower = [];
-    activeAffiliationsLower = affiliationsLowerAll.slice();
   }
+  syncCommunitySelectionState();
   sidebarOpenCategories = {};
 
   try { if (placeInfoEl) { placeInfoEl.hidden = true; placeInfoEl.innerHTML = ''; } } catch(e4) {}
@@ -2906,6 +2963,7 @@ function handleSidebarReset(ev) {
   try { clearPopupConnector(); } catch(e7) {}
   try { if (typeof window.refreshCommunityControl === 'function') window.refreshCommunityControl(); } catch(e8) {}
   try { rebuildOverlaysAndSearch(); } catch(e9) {}
+  try { repaintCommunityHighlights(); } catch(e9a) {}
   try {
     if (resumeTime !== null && !isNaN(resumeTime) && map && map.timeDimension) {
       map.timeDimension.setCurrentTime(resumeTime);
@@ -2937,9 +2995,16 @@ if (btnClearSelection) {
 
 // Keep the sidebar in sync with the time slider / autoplay
 map.timeDimension.on('timeload', function(){
+  syncCommunitySelectionState();
   updateSidebarList();
   try { if (selectedSiteName) { updateStoryHighlight(); layoutStoryPhaseLabels(); } } catch(e) {}
   updateOverlapStyles();
+  try { if (typeof window.refreshCommunityControl === 'function') window.refreshCommunityControl(); } catch(e2) {}
+  // Rebuilt TimeDimension layers may update after this listener; repaint once more
+  // on the next tick so community rings land on the freshly swapped markers.
+  setTimeout(function(){
+    try { repaintCommunityHighlights(); } catch(e3) {}
+  }, 0);
 });
 
 map.on('zoomend moveend resize', function(){

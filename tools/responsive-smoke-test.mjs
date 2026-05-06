@@ -172,6 +172,8 @@ async function chromeAudit(viewport) {
           const topRight = q('.leaflet-top.leaflet-right');
           const timeline = q('.topright-timeyear');
           const community = q('.topright-lang-community') || q('.community-control');
+          const communityToggle = q('.community-toggle');
+          const communityPanel = q('.community-panel');
           const reset = q('#btnClearSelection');
           const restart = q('#btnRestartTimeline');
           const actions = q('.sidebar-actions');
@@ -195,12 +197,23 @@ async function chromeAudit(viewport) {
           if (innerWidth > 820 && overlaps(topRightBox, sidebarBox)) problems.push('top controls overlap sidebar');
           if (overlaps(timelineBox, communityBox)) problems.push('timeline overlaps community control');
 
+          if (communityToggle && communityPanel && communityPanel.hidden) communityToggle.click();
+          const communityLabels = Array.from(document.querySelectorAll('.community-control .aff-label'))
+            .map(el => (el.textContent || '').replace(/\\s+/g, ' ').trim());
+          const selectableCommunityLabels = communityLabels.filter(text => text && !/^(Elimina selezione|Clear selection)$/.test(text));
+          const datedCommunityLabels = selectableCommunityLabels.filter(text => /\\(\\d{4}-(?:\\d{4}|oggi|today)\\)$/.test(text));
+          if (communityPanel && communityPanel.hidden) problems.push('community panel did not open');
+          if (selectableCommunityLabels.length && datedCommunityLabels.length !== selectableCommunityLabels.length) {
+            problems.push('community date ranges missing');
+          }
+
           resolve({
             viewport: { width: innerWidth, height: innerHeight },
             title: q('#sidebarTitle')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
             sidebar: sidebarBox,
             timeline: timelineBox,
             community: communityBox,
+            communityLabels,
             restartText: restart?.textContent?.replace(/\\s+/g, ' ').trim() || '',
             problems
           });

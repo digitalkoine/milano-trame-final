@@ -1730,7 +1730,19 @@ html, body, input, button, select, textarea,
 }
 
 .topright-lang-community {
-  max-width: min(340px, calc(100vw - var(--sidebar-w, 420px) - 24px));
+  max-width: min(520px, calc(100vw - var(--sidebar-w, 420px) - 24px));
+}
+
+.community-control .community-panel {
+  /* The date ranges make the labels longer; keep the desktop menu wide enough for one-line options. */
+  width: min(520px, calc(100vw - var(--sidebar-w, 420px) - 48px));
+  max-width: calc(100vw - 24px);
+}
+
+@media (min-width: 821px) {
+  .community-control .aff-label {
+    white-space: nowrap !important;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -1794,5 +1806,9 @@ html, body, input, button, select, textarea,
   .topright-lang-community,
   .topright-timeyear {
     max-width: calc(100vw - 24px);
+  }
+
+  .community-control .community-panel {
+    width: calc(100vw - 24px);
   }
 }

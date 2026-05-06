@@ -325,17 +325,27 @@ function compareAffiliationKeys(a, b) {
   return ia - ib;
 }
 
+function splitAffiliationLabels(value) {
+  var raw = String(value == null ? '' : value).trim();
+  if (!raw) return [];
+  return raw.split(/[;,\/|\n]+/)
+    .map(function(s){ return String(s).trim(); })
+    .filter(function(s){ return !!s; });
+}
+
 function getAffiliations(arr) {
   var seen = {};
   var hasNone = false;
   for (var i = 0; i < arr.length; i++) {
-    var a = (arr[i].affiliazione || '').toString().trim();
-    if (!a) {
+    var parts = splitAffiliationLabels(arr[i].affiliazione);
+    if (!parts.length) {
       hasNone = true;
       continue;
     }
-    var key = canonicalAffiliationKey(a);
-    if (!seen[key]) seen[key] = a;
+    for (var j = 0; j < parts.length; j++) {
+      var key = canonicalAffiliationKey(parts[j]);
+      if (!seen[key]) seen[key] = parts[j];
+    }
   }
   var keys = Object.keys(seen).sort(compareAffiliationKeys);
   var labels = keys.map(function(k){ return seen[k]; });
@@ -346,6 +356,36 @@ function getAffiliations(arr) {
   return { labels: labels, keys: keys };
 }
 
+function isOpenEndYear(value) {
+  var s = cleanYearValue(value);
+  if (!s) return true;
+  return Number(s) === 0;
+}
+
+function addAffiliationYear(range, value) {
+  var y = numericYearValue(value);
+  if (typeof y !== 'number' || isNaN(y) || y === 0) return;
+  if (range.min === null || y < range.min) range.min = y;
+  if (range.max === null || y > range.max) range.max = y;
+}
+
+function getAffiliationDateRanges(arr) {
+  var ranges = {};
+  for (var i = 0; i < arr.length; i++) {
+    var row = arr[i] || {};
+    var parts = splitAffiliationLabels(row.affiliazione);
+    if (!parts.length) parts = [AFF_NONE_KEY];
+    for (var j = 0; j < parts.length; j++) {
+      var key = canonicalAffiliationKey(parts[j]);
+      if (!ranges[key]) ranges[key] = { min: null, max: null, open: false };
+      addAffiliationYear(ranges[key], row.start_year);
+      if (isOpenEndYear(row.end_year)) ranges[key].open = true;
+      else addAffiliationYear(ranges[key], row.end_year);
+    }
+  }
+  return ranges;
+}
+
 var categories = getCategories(milanoSites);
 
 
@@ -354,9 +394,18 @@ var affiliations = affiliationMeta.labels;
 
 var affiliationsLowerAll = affiliationMeta.keys;
 var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward compatibility
+var affiliationDateRanges = getAffiliationDateRanges(milanoSites);
+var AFF_OPEN_END_LABEL = 'today';
 
 // Comunità selection state. Empty = no highlight; otherwise it outlines matching visible points.
 var selectedAffiliationsLower = [];
+
+function formatAffiliationDateRange(keyLower) {
+  var range = affiliationDateRanges ? affiliationDateRanges[keyLower] : null;
+  if (!range || range.min === null) return '';
+  var endLabel = range.open ? AFF_OPEN_END_LABEL : (range.max === null ? range.min : range.max);
+  return ' (' + range.min + '-' + endLabel + ')';
+}
 
 function syncCommunitySelectionState() {
   if (!Array.isArray(selectedAffiliationsLower)) selectedAffiliationsLower = [];
@@ -1929,16 +1978,19 @@ function updateToggleCount() {
     document.addEventListener('mousedown', onDocPointerDown, true);
     document.addEventListener('touchstart', onDocPointerDown, true);
 
-    function makeAffButton(label, keyLower, isClear) {
-      var b = L.DomUtil.create('button', 'aff-btn', panel);
-      b.type = 'button';
-      b.setAttribute('data-aff', isClear ? '__clear__' : keyLower);
-      b.setAttribute('aria-pressed', 'false');
+	    function makeAffButton(label, keyLower, isClear) {
+	      var b = L.DomUtil.create('button', 'aff-btn', panel);
+	      b.type = 'button';
+	      b.setAttribute('data-aff', isClear ? '__clear__' : keyLower);
+	      b.setAttribute('aria-pressed', 'false');
 
-      var strokeCol = isClear ? '#111' : (AFF_OUTLINE_COLORS[keyLower] || '#111');
-      b.innerHTML =
-        (isClear ? '' : ('<span class="aff-swatch" style="--stroke:' + strokeCol + '"></span>')) +
-        '<span class="aff-label">' + label + '</span>';
+	      var strokeCol = isClear ? '#111' : (AFF_OUTLINE_COLORS[keyLower] || '#111');
+	      if (!isClear) {
+	        var swatch = L.DomUtil.create('span', 'aff-swatch', b);
+	        swatch.style.setProperty('--stroke', strokeCol);
+	      }
+	      var labelEl = L.DomUtil.create('span', 'aff-label', b);
+	      labelEl.textContent = label + (isClear ? '' : formatAffiliationDateRange(keyLower));
 
 	      function onAffActivate(e){
 	        try { L.DomEvent.stop(e); } catch(err) {}

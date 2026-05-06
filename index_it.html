@@ -47,7 +47,10 @@
       <div class="sidebar-header">
         <div class="sidebar-title">
           <h3 id="sidebarTitle">Enti ebraici a Milano<br>anno <span id="sidebarYear">—</span></h3>
-          <button id="btnClearSelection" class="sidebar-btn" type="button">Reset</button>
+          <div class="sidebar-actions" aria-label="Azioni cronologia">
+            <button id="btnClearSelection" class="sidebar-btn" type="button">Reset</button>
+            <button id="btnRestartTimeline" class="sidebar-btn" type="button" aria-label="Ricomincia la cronologia">Ricomincia la cronologia</button>
+          </div>
         </div>
         <div class="sidebar-sub">
           <span id="sidebarCount">0</span>
@@ -1677,7 +1680,7 @@ var CATEGORY_SVGS = {
   'comunitario': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M4.5 20c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M13.5 20c.3-2.3 2-3.7 4-3.7 1.8 0 3.2.9 3.8 3.7"/></svg>',
   'educazione': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 11v5c0 1.5 3 3 5 3s5-1.5 5-3v-5"/><path d="M21 10v6"/></svg>',
   'assistenza': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-9.5-9C.8 8.8 3 6 6 6c1.8 0 3.2 1 4 2 0.8-1 2.2-2 4-2 3 0 5.2 2.8 3.5 6-2.5 4.5-9.5 9-9.5 9z"/></svg>',
-  'religioso': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.6 4.5L20 8l-3.8 3.2L17 17l-5-2.4L7 17l.8-5.8L4 8l5.4-.5L12 3z"/></svg>',
+  'religioso': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V11a7 7 0 0 1 14 0v10"/><path d="M9 21V11a3 3 0 0 1 6 0v10"/><path d="M4 21h16"/><path d="M8 7h8"/></svg>',
   'altro': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.2"/></svg>',
   'all': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>'
 };
@@ -2096,6 +2099,7 @@ var sidebarTitleEl = document.getElementById('sidebarTitle');
 var sidebarCountEl = document.getElementById('sidebarCount');
 var placesListEl = document.getElementById('placesList');
 var btnClearSelection = document.getElementById('btnClearSelection');
+var btnRestartTimeline = document.getElementById('btnRestartTimeline');
 var placeInfoEl = document.getElementById('placeInfo');
 
 function getCurrentYear() {
@@ -3009,6 +3013,63 @@ if (btnClearSelection) {
   btnClearSelection.addEventListener('touchend', handleSidebarReset, {passive:false, capture:true});
   btnClearSelection.addEventListener('keydown', function(ev){
     if (ev.key === 'Enter' || ev.key === ' ') { handleSidebarReset(ev); }
+  });
+}
+
+function timelineStartTimeForCurrentFilters() {
+  var minY = null;
+  try {
+    (sitesGeojson.features || []).forEach(function(f){
+      var p = (f && f.properties) ? f.properties : {};
+      if (!passesActiveFilters(p)) return;
+      var sy = numericYearValue(p.start_year);
+      if (sy === null) return;
+      minY = (minY === null) ? sy : Math.min(minY, sy);
+    });
+    if (minY === null) {
+      (sitesGeojson.features || []).forEach(function(f){
+        var p = (f && f.properties) ? f.properties : {};
+        var sy = numericYearValue(p.start_year);
+        if (sy === null) return;
+        minY = (minY === null) ? sy : Math.min(minY, sy);
+      });
+    }
+  } catch(e) {}
+  return minY === null ? null : Date.UTC(minY, 0, 1);
+}
+
+function handleRestartTimeline(ev) {
+  if (ev) { try { ev.preventDefault(); ev.stopPropagation(); } catch(e) {} }
+  stopTimelinePlayer();
+  if (selectedSiteName) {
+    selectedSiteName = null;
+    selectedSiteLabel = null;
+    selectedFocusUid = null;
+    try { if (placeInfoEl) { placeInfoEl.hidden = true; placeInfoEl.innerHTML = ''; } } catch(e1) {}
+    try { clearSpiderfy(); } catch(e2) {}
+    try { clearStoryMovementLayer(); } catch(e3) {}
+    try { clearPopupConnector(); } catch(e4) {}
+    try { rebuildOverlaysAndSearch({ preserveAutoplay: false }); } catch(e5) {}
+  }
+  var startTime = timelineStartTimeForCurrentFilters();
+  if (startTime !== null && map && map.timeDimension) {
+    try { map.timeDimension.setCurrentTime(startTime); } catch(e6) {}
+  }
+  try { updateSidebarList(); } catch(e7) {}
+  setTimeout(function(){
+    try { fitAllSitesKeepingSidebar(); } catch(e8) {}
+    startTimelinePlayer(40);
+  }, 80);
+}
+if (btnRestartTimeline) {
+  btnRestartTimeline.addEventListener('click', handleRestartTimeline, true);
+  btnRestartTimeline.addEventListener('pointerup', function(ev){
+    if (ev && ev.pointerType === 'mouse') return;
+    handleRestartTimeline(ev);
+  }, true);
+  btnRestartTimeline.addEventListener('touchend', handleRestartTimeline, {passive:false, capture:true});
+  btnRestartTimeline.addEventListener('keydown', function(ev){
+    if (ev.key === 'Enter' || ev.key === ' ') { handleRestartTimeline(ev); }
   });
 }
 

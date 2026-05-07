@@ -294,8 +294,6 @@
         return out;
       }
 
-      
-
 // ---- Affiliation list (Comunità) ----
 var AFF_NONE_KEY = '(none)';
 var AFFILIATION_ORDER = ['chabad', 'lebanese', 'milanese', 'persian', 'mena', 'postwar', AFF_NONE_KEY];
@@ -395,7 +393,11 @@ var affiliations = affiliationMeta.labels;
 var affiliationsLowerAll = affiliationMeta.keys;
 var activeAffiliationsLower = affiliationsLowerAll.slice(); // kept for backward compatibility
 var affiliationDateRanges = getAffiliationDateRanges(milanoSites);
-var AFF_OPEN_END_LABEL = 'today';
+
+function formatOpenDateLabel(year) {
+  var y = cleanYearValue(year);
+  return y ? (y + ' -') : '';
+}
 
 // Comunità selection state. Empty = no highlight; otherwise it outlines matching visible points.
 var selectedAffiliationsLower = [];
@@ -403,7 +405,8 @@ var selectedAffiliationsLower = [];
 function formatAffiliationDateRange(keyLower) {
   var range = affiliationDateRanges ? affiliationDateRanges[keyLower] : null;
   if (!range || range.min === null) return '';
-  var endLabel = range.open ? AFF_OPEN_END_LABEL : (range.max === null ? range.min : range.max);
+  if (range.open) return ' (' + formatOpenDateLabel(range.min) + ')';
+  var endLabel = (range.max === null) ? range.min : range.max;
   return ' (' + range.min + '-' + endLabel + ')';
 }
 
@@ -483,7 +486,6 @@ var AFF_OUTLINE_COLORS = (function(){
         "non classificato": "#f17e5a"
       };
 
-      
       function getPopupSourceInfo(p) {
         if (!p) return '';
         var direct = p.fonti || p.fonte || p.Fonti || p.sources || p.source || p.Sources || '';
@@ -515,7 +517,7 @@ function bindPopupHtml(feature, layer) {
         var p = feature.properties || {};
         var yearsLabel = '';
         if ((p.end_year === null || p.end_year === undefined || p.end_year === '' || String(p.end_year).toLowerCase() === 'null') && p.start_year) {
-          yearsLabel = String(p.start_year) + '–';
+          yearsLabel = formatOpenDateLabel(p.start_year);
         } else if (p.start_year === p.end_year) {
           yearsLabel = String(p.start_year || '');
         } else {
@@ -1728,8 +1730,6 @@ function rebuildOverlaysAndSearch(options) {
         try { if (selectedSiteName) layoutStoryPhaseLabels(); } catch(e) {}
       }, 0);
 
-      
-
 // ---- UI: Categoria in sidebar + Comunità dropdown on map ----
 
 // Monochrome (B/W) symbolic SVG icons for categories.
@@ -1737,8 +1737,8 @@ var CATEGORY_SVGS = {
   'associazione': '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="20" r="6"></circle><path d="M20 46c0-7 5.4-12 12-12s12 5 12 12"></path><circle cx="14" cy="24" r="5"></circle><path d="M4 46c0-6 4.5-10 10-10 2 0 3.8.5 5.4 1.4"></path><circle cx="50" cy="24" r="5"></circle><path d="M60 46c0-6-4.5-10-10-10-2 0-3.8.5-5.4 1.4"></path></svg>',
   'comunitario': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M4.5 20c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M13.5 20c.3-2.3 2-3.7 4-3.7 1.8 0 3.2.9 3.8 3.7"/></svg>',
   'educazione': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 11v5c0 1.5 3 3 5 3s5-1.5 5-3v-5"/><path d="M21 10v6"/></svg>',
-  'assistenza': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-9.5-9C.8 8.8 3 6 6 6c1.8 0 3.2 1 4 2 0.8-1 2.2-2 4-2 3 0 5.2 2.8 3.5 6-2.5 4.5-9.5 9-9.5 9z"/></svg>',
-  'religioso': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V11a7 7 0 0 1 14 0v10"/><path d="M9 21V11a3 3 0 0 1 6 0v10"/><path d="M4 21h16"/><path d="M8 7h8"/></svg>',
+  'assistenza': '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 55s-19-12-25-25c-4-8 1-17 10-17 5 0 9 3 12 7 3-4 7-7 12-7 9 0 14 9 10 17-6 13-25 25-25 25z"/><path d="M16 34l8-7c3-3 7-3 10 0l5 5"/><path d="M25 42l5 4c2 2 5 2 7 0l11-10"/><path d="M38 39l5 4"/></svg>',
+  'religioso': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-5 9 5"/><path d="M5 9h14"/><path d="M6 10v8"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M18 10v8"/><path d="M4 18h16"/><path d="M3 21h18"/></svg>',
   'altro': '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.2"/></svg>',
   'all': '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>'
 };
@@ -1904,7 +1904,6 @@ var CommunityDropdownControl = L.Control.extend({
     panel.setAttribute('role', 'menu');
     panel.hidden = true;
 
-    
     // Prevent map interactions from hijacking clicks inside the dropdown.
     panel.addEventListener('mousedown', function(e){ try { L.DomEvent.stop(e); } catch(err){} });
     panel.addEventListener('click', function(e){ try { L.DomEvent.stop(e); } catch(err){} });
@@ -2173,7 +2172,7 @@ function yearLabelForFeature(p) {
   if (!p) return '';
   var sy = cleanYearValue(p.start_year);
   var ey = cleanYearValue(p.end_year);
-  if (!ey) return sy ? (sy + '–') : '';
+  if (!ey) return formatOpenDateLabel(sy);
   return (sy === ey) ? sy : (sy + '–' + ey);
 }
 
@@ -3004,8 +3003,8 @@ function renderPlaceInfoForSelected() {
     else hasOpenEndedPhase = true;
   });
   var years = (minY !== null && maxY !== null)
-    ? (hasOpenEndedPhase ? (minY + '–') : ((minY === maxY) ? String(minY) : (minY + '–' + maxY)))
-    : (minY !== null && hasOpenEndedPhase ? (minY + '–') : '');
+    ? (hasOpenEndedPhase ? formatOpenDateLabel(minY) : ((minY === maxY) ? String(minY) : (minY + '–' + maxY)))
+    : (minY !== null && hasOpenEndedPhase ? formatOpenDateLabel(minY) : '');
 
   var html = ''
     + '<div class="place-info-title">' + safeText((rep && rep.sito) || selectedSiteLabel || selectedSiteName) + '</div>'

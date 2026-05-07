@@ -201,7 +201,7 @@ async function chromeAudit(viewport) {
           const communityLabels = Array.from(document.querySelectorAll('.community-control .aff-label'))
             .map(el => (el.textContent || '').replace(/\\s+/g, ' ').trim());
           const selectableCommunityLabels = communityLabels.filter(text => text && !/^(Elimina selezione|Clear selection)$/.test(text));
-          const datedCommunityLabels = selectableCommunityLabels.filter(text => /\\(\\d{4}-(?:\\d{4}|oggi|today)\\)$/.test(text));
+          const datedCommunityLabels = selectableCommunityLabels.filter(text => /\\(\\d{4}(?:-\\d{4}| -)\\)$/.test(text));
           if (communityPanel && communityPanel.hidden) problems.push('community panel did not open');
           if (selectableCommunityLabels.length && datedCommunityLabels.length !== selectableCommunityLabels.length) {
             problems.push('community date ranges missing');

@@ -1739,6 +1739,15 @@ html, body, input, button, select, textarea,
   max-width: calc(100vw - 24px);
 }
 
+.cat-svg--welfare {
+  stroke-width: 2.15 !important;
+}
+
+.icon-only-marker__icon .cat-svg--welfare {
+  width: 76% !important;
+  height: 76% !important;
+}
+
 @media (min-width: 821px) {
   .community-control .aff-label {
     white-space: nowrap !important;
